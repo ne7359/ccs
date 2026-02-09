@@ -483,6 +483,56 @@ CCS v7.34 adds Image Analysis Hook for vision model proxying through CLIProxy wi
     - Quota usage display
 ```
 
+### Model Tier Transformer Proxy (v7.40)
+
+Enables Pro-tier accounts to participate in round-robin alongside Ultra-tier accounts by injecting tier-gated models and rewriting requests to use Pro-compatible fallbacks.
+
+```
++===========================================================================+
+|                   Model Tier Transformer Proxy Flow                       |
++===========================================================================+
+
+  Activation: Mixed tiers detected (Pro + Ultra active) with tier-gated models
+
+  Setup Flow:
+    1. Start transformer proxy (127.0.0.1:random)
+    2. Build shadow auth dir (~/.ccs/cliproxy/auth-transformer/)
+       - Pro accounts: inject base_url --> transformer proxy
+       - Ultra accounts: copy unchanged
+    3. Regenerate CLIProxy config with shadow auth
+    4. Start CLIProxy with shadow config
+
+  Request Paths:
+
+  [Pro Account Selected]
+  Claude CLI --> CLIProxy --> Transformer Proxy --> Antigravity API
+                                     |
+                                     +---> fetchAvailableModels?
+                                     |       - Buffer response
+                                     |       - Inject tier-gated models
+                                     |
+                                     +---> API request?
+                                             - Rewrite model name
+                                             - Pipe response (SSE safe)
+
+  [Ultra Account Selected]
+  Claude CLI --> CLIProxy --> Antigravity API (bypass proxy)
+
+  Model Rewriting:
+    claude-opus-4-6-thinking --> claude-opus-4-5-thinking
+
+  Security:
+    [OK] Localhost only (127.0.0.1)
+    [OK] Shadow dir 0o700, files 0o600
+    [OK] Original auth files never modified
+    [OK] Auto-cleanup on exit
+
+  Files:
+    - model-tier-transformer-proxy.ts (proxy server)
+    - transformer-proxy-forwarding.ts (HTTP/HTTPS forwarding)
+    - shadow-auth-builder.ts (shadow auth construction)
+```
+
 ---
 
 ## Configuration Architecture

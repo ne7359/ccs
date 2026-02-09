@@ -80,6 +80,9 @@ src/
 │   ├── account-manager.ts    # Account management (509 lines)
 │   ├── quota-manager.ts      # Hybrid quota management (NEW v7.14)
 │   ├── quota-fetcher.ts      # Provider quota API integration (NEW v7.14)
+│   ├── model-tier-transformer-proxy.ts  # Local proxy for tier-gated models (NEW v7.40)
+│   ├── transformer-proxy-forwarding.ts  # HTTP forwarding utilities (NEW v7.40)
+│   ├── shadow-auth-builder.ts           # Shadow auth dir with base_url injection (NEW v7.40)
 │   ├── platform-detector.ts  # OS/arch detection
 │   ├── binary-manager.ts     # Binary download/update
 │   ├── auth-handler.ts       # Authentication handling
@@ -185,6 +188,7 @@ src/
 | Providers | `cliproxy/`, `copilot/`, `glmt/` | Provider integrations (7 CLIProxy providers: gemini, codex, agy, qwen, iflow, kiro, ghcp) |
 | Quota | `cliproxy/quota-*.ts`, `account-manager.ts` | Hybrid quota management (v7.14) |
 | Remote Proxy | `cliproxy/remote-*.ts`, `proxy-config-resolver.ts` | Remote CLIProxy support (v7.1) |
+| Tier Transformer | `cliproxy/model-tier-transformer-proxy.ts`, `transformer-proxy-forwarding.ts`, `shadow-auth-builder.ts` | Model tier transformation for Pro accounts (v7.40) |
 | Image Analysis | `utils/image-analysis/`, `utils/hooks/` | Vision model proxying (v7.34) |
 | Services | `web-server/`, `api/` | HTTP server, API services |
 | Utilities | `utils/`, `management/` | Helpers, diagnostics |
