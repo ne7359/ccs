@@ -609,8 +609,10 @@ export async function execClaudeWithCLIProxy(
     // If transformer is active and proxy was already running, force restart
     // to pick up the new auth-dir with shadow injection
     if (transformerAuthDir && !shouldSpawn && sessionId) {
-      warn(
-        'Restarting proxy to apply tier transformer — other active CCS sessions may be briefly interrupted'
+      console.error(
+        warn(
+          'Restarting proxy to apply tier transformer — other active CCS sessions may be briefly interrupted'
+        )
       );
       await stopProxy(cfg.port);
       // Wait for port to be released (check availability with retry)

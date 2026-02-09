@@ -145,8 +145,10 @@ export class ModelTierTransformerProxy {
           }
         }
         const modifiedBody = JSON.stringify(parsed);
+        // Strip content-encoding since body was re-serialized as plain JSON
+        const { 'content-encoding': _ce, ...cleanHeaders } = upstream.headers;
         const responseHeaders = {
-          ...upstream.headers,
+          ...cleanHeaders,
           'content-length': String(Buffer.byteLength(modifiedBody)),
         };
         res.writeHead(upstream.statusCode, responseHeaders);

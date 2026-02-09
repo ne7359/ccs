@@ -5,42 +5,11 @@
  * and rewrites model names for Pro-tier accounts.
  */
 
-// Must be set before https module loads to accept self-signed certs in tests
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
 import { describe, it, expect, afterEach } from 'bun:test';
 import * as http from 'http';
-import * as https from 'https';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import { ModelTierTransformerProxy } from '../../../src/cliproxy/model-tier-transformer-proxy';
 
 const DEFAULT_FALLBACK = { 'claude-opus-4-6-thinking': 'claude-opus-4-5-thinking' };
-
-// Self-signed cert for test HTTPS server (generated once per test run)
-let testCert: { key: string; cert: string } | null = null;
-
-/** Generate self-signed cert using openssl with temp files */
-async function getTestCert(): Promise<{ key: string; cert: string }> {
-  if (testCert) return testCert;
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-test-cert-'));
-  const keyPath = path.join(tmpDir, 'key.pem');
-  const certPath = path.join(tmpDir, 'cert.pem');
-  const proc = Bun.spawn([
-    'openssl', 'req', '-x509', '-newkey', 'rsa:2048',
-    '-keyout', keyPath, '-out', certPath,
-    '-days', '1', '-nodes', '-subj', '/CN=localhost',
-    '-addext', 'subjectAltName=IP:127.0.0.1',
-  ], { stdout: 'pipe', stderr: 'pipe' });
-  await proc.exited;
-  testCert = {
-    key: fs.readFileSync(keyPath, 'utf-8'),
-    cert: fs.readFileSync(certPath, 'utf-8'),
-  };
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-  return testCert;
-}
 
 /** Make an HTTP request to the transformer proxy */
 function proxyRequest(
@@ -71,13 +40,12 @@ function proxyRequest(
   });
 }
 
-/** Create an HTTPS upstream mock server (self-signed) */
-async function createUpstreamMock(
+/** Create an HTTP upstream mock server */
+function createUpstreamMock(
   handler: (req: http.IncomingMessage, res: http.ServerResponse) => void
-): Promise<{ server: https.Server; port: number }> {
-  const cert = await getTestCert();
+): Promise<{ server: http.Server; port: number }> {
   return new Promise((resolve) => {
-    const server = https.createServer({ key: cert.key, cert: cert.cert }, handler);
+    const server = http.createServer(handler);
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
@@ -88,7 +56,7 @@ async function createUpstreamMock(
 
 describe('ModelTierTransformerProxy', () => {
   let proxy: ModelTierTransformerProxy | null = null;
-  let upstream: { server: https.Server; port: number } | null = null;
+  let upstream: { server: http.Server; port: number } | null = null;
 
   afterEach(() => {
     proxy?.stop();
@@ -179,7 +147,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
 
@@ -208,7 +176,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
       const res = await proxyRequest(port, '/v1/fetchAvailableModels', '{}');
@@ -231,7 +199,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
       const res = await proxyRequest(port, '/v1/fetchAvailableModels', '{}');
@@ -252,7 +220,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
       const res = await proxyRequest(port, '/v1/fetchAvailableModels', '{}');
@@ -270,7 +238,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
       const res = await proxyRequest(port, '/v1/fetchAvailableModels', '{}');
@@ -286,7 +254,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
       const res = await proxyRequest(port, '/v1/fetchAvailableModels', '{}');
@@ -297,7 +265,6 @@ describe('ModelTierTransformerProxy', () => {
 
   describe('handleApiRequest — model rewriting', () => {
     it('should rewrite tier-gated model to fallback', async () => {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
       let receivedBody = '';
 
       upstream = await createUpstreamMock((req, res) => {
@@ -312,7 +279,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
 
@@ -322,7 +289,6 @@ describe('ModelTierTransformerProxy', () => {
     });
 
     it('should pass through non-matching model unchanged', async () => {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
       let receivedBody = '';
 
       upstream = await createUpstreamMock((req, res) => {
@@ -337,7 +303,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
 
@@ -347,7 +313,6 @@ describe('ModelTierTransformerProxy', () => {
     });
 
     it('should handle malformed JSON body gracefully', async () => {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
       let receivedBody = '';
 
       upstream = await createUpstreamMock((req, res) => {
@@ -362,7 +327,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
 
@@ -372,7 +337,6 @@ describe('ModelTierTransformerProxy', () => {
     });
 
     it('should handle empty body gracefully', async () => {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
       let receivedBody = '';
 
       upstream = await createUpstreamMock((req, res) => {
@@ -387,7 +351,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
 
@@ -405,7 +369,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
       const res = await proxyRequest(port, '/v1beta/fetchAvailableModels', '{}');
@@ -413,7 +377,6 @@ describe('ModelTierTransformerProxy', () => {
     });
 
     it('should NOT match fetchAvailableModels as substring in path', async () => {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
       let requestedPath = '';
 
       upstream = await createUpstreamMock((req, res) => {
@@ -428,7 +391,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
       // Path that contains fetchAvailableModels but doesn't end with it
@@ -461,7 +424,7 @@ describe('ModelTierTransformerProxy', () => {
 
       proxy = new ModelTierTransformerProxy({
         fallbackMap: DEFAULT_FALLBACK,
-        upstreamBaseUrl: `https://127.0.0.1:${upstream.port}`,
+        upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
       });
       const port = await proxy.start();
 

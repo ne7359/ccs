@@ -99,10 +99,12 @@ export function forwardAndBuffer(
   timeoutMs: number
 ): Promise<BufferedResponse> {
   return new Promise((resolve, reject) => {
-    const upstreamReq = https.request(
+    const isHttp = upstreamUrl.protocol === 'http:';
+    const transport = isHttp ? http : https;
+    const upstreamReq = transport.request(
       {
         hostname: upstreamUrl.hostname,
-        port: upstreamUrl.port || 443,
+        port: upstreamUrl.port || (isHttp ? 80 : 443),
         path: upstreamUrl.pathname + upstreamUrl.search,
         method,
         headers,
@@ -111,15 +113,18 @@ export function forwardAndBuffer(
       (upstreamRes) => {
         const chunks: Buffer[] = [];
         let totalSize = 0;
+        let destroyed = false;
         upstreamRes.on('data', (chunk: Buffer) => {
           totalSize += chunk.length;
           if (totalSize > MAX_RESPONSE_SIZE) {
+            destroyed = true;
             upstreamRes.destroy(new Error('Response body too large'));
             return;
           }
           chunks.push(chunk);
         });
         upstreamRes.on('end', () => {
+          if (destroyed) return;
           const responseHeaders: Record<string, string> = {};
           for (const [key, value] of Object.entries(upstreamRes.headers)) {
             if (value !== undefined) {
@@ -156,10 +161,12 @@ export function forwardAndPipe(
   timeoutMs: number
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const upstreamReq = https.request(
+    const isHttp = upstreamUrl.protocol === 'http:';
+    const transport = isHttp ? http : https;
+    const upstreamReq = transport.request(
       {
         hostname: upstreamUrl.hostname,
-        port: upstreamUrl.port || 443,
+        port: upstreamUrl.port || (isHttp ? 80 : 443),
         path: upstreamUrl.pathname + upstreamUrl.search,
         method,
         headers,
