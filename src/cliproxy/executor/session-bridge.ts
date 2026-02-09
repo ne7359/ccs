@@ -213,12 +213,20 @@ export function setupCleanupHandlers(
       'stop' in modelTierTransformer
     ) {
       (modelTierTransformer as { stop: () => void }).stop();
-      cleanupTransformerShadowAuthDir();
-      // Restore config with original auth dir for next session
+      // Restore config with original auth dir BEFORE deleting shadow dir
       try {
         regenerateConfig(sessionPort);
+        cleanupTransformerShadowAuthDir();
       } catch {
-        // Best-effort restore
+        // Config restore failed — clean up shadow dir and delete config
+        // so next session generates fresh (avoids stale shadow auth-dir reference)
+        cleanupTransformerShadowAuthDir();
+        try {
+          const { deleteConfigForPort } = require('../config-generator');
+          (deleteConfigForPort as (port: number) => void)(sessionPort);
+        } catch {
+          // Best-effort cleanup
+        }
       }
     }
   };
@@ -263,5 +271,9 @@ export function setupCleanupHandlers(
   });
 
   process.once('SIGTERM', cleanup);
-  process.once('SIGINT', cleanup);
+  process.once('SIGINT', () => {
+    // Restore default SIGINT behavior so second Ctrl+C force-quits
+    process.on('SIGINT', () => process.exit(130));
+    cleanup();
+  });
 }

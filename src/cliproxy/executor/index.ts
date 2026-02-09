@@ -600,7 +600,12 @@ export async function execClaudeWithCLIProxy(
       log('Restarting proxy to apply transformer auth dir');
       const { stopProxy } = await import('../session-tracker');
       await stopProxy(cfg.port);
-      await new Promise((r) => setTimeout(r, 500));
+      // Wait for port to be released (check availability with retry)
+      const { isPortAvailable } = await import('./lifecycle-manager');
+      for (let i = 0; i < 25; i++) {
+        if (await isPortAvailable(cfg.port)) break;
+        await new Promise((r) => setTimeout(r, 200));
+      }
       shouldSpawn = true;
       sessionId = undefined;
     }

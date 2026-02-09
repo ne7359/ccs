@@ -83,8 +83,12 @@ export function createTransformerShadowAuthDir(
         fs.writeFileSync(dstPath, JSON.stringify(data, null, 2), { mode: 0o600 });
       }
     } catch {
-      // Copy unchanged on parse error
-      fs.copyFileSync(srcPath, dstPath);
+      // Copy unchanged on parse error, skip if unreadable
+      try {
+        fs.copyFileSync(srcPath, dstPath);
+      } catch {
+        // File unreadable — skip (CLIProxy can't use it either)
+      }
     }
   }
 

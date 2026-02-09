@@ -136,6 +136,12 @@ export function forwardAndPipe(
         upstreamRes.pipe(clientRes);
         upstreamRes.on('end', resolve);
         upstreamRes.on('error', reject);
+        // Clean up upstream connection if client disconnects mid-stream
+        clientRes.on('close', () => {
+          if (!upstreamRes.complete) {
+            upstreamRes.destroy();
+          }
+        });
       }
     );
 

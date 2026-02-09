@@ -118,14 +118,27 @@ export class ModelTierTransformerProxy {
     try {
       const parsed: unknown = JSON.parse(upstream.body);
       if (parsed && typeof parsed === 'object' && 'models' in parsed) {
-        const obj = parsed as { models: unknown[] };
-        if (Array.isArray(obj.models)) {
+        const obj = parsed as { models: unknown };
+        if (typeof obj.models === 'object' && obj.models !== null && !Array.isArray(obj.models)) {
+          // Antigravity returns models as Record<string, object>
+          const record = obj.models as Record<string, unknown>;
+          for (const ultraModel of Object.keys(this.fallbackMap)) {
+            if (!(ultraModel in record)) {
+              record[ultraModel] = { displayName: ultraModel };
+              this.stats.modelListInjections++;
+              this.log(`Injected ${ultraModel} into model list`);
+            }
+          }
+        } else if (Array.isArray(obj.models)) {
+          // Fallback: handle array format if API changes
           const existingIds = new Set(
-            obj.models.map((m) => (typeof m === 'string' ? m : (m as Record<string, unknown>)?.id))
+            (obj.models as unknown[]).map((m) =>
+              typeof m === 'string' ? m : (m as Record<string, unknown>)?.id
+            )
           );
           for (const ultraModel of Object.keys(this.fallbackMap)) {
             if (!existingIds.has(ultraModel)) {
-              obj.models.push(ultraModel);
+              (obj.models as unknown[]).push(ultraModel);
               this.stats.modelListInjections++;
               this.log(`Injected ${ultraModel} into model list`);
             }
