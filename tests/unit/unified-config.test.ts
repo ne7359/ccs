@@ -98,6 +98,11 @@ describe('unified-config-types', () => {
       expect(config.cliproxy.providers).toContain('gemini');
       expect(config.cliproxy.providers).toContain('codex');
     });
+
+    it('should default attribution resolver to v2', () => {
+      const config = createEmptyUnifiedConfig();
+      expect(config.attribution?.resolverVersion).toBe('v2');
+    });
   });
 
   describe('isUnifiedConfig', () => {

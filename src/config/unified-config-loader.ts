@@ -22,10 +22,12 @@ import {
   DEFAULT_THINKING_CONFIG,
   DEFAULT_DASHBOARD_AUTH_CONFIG,
   DEFAULT_IMAGE_ANALYSIS_CONFIG,
+  normalizeAttributionResolverVersion,
   GlobalEnvConfig,
   ThinkingConfig,
   DashboardAuthConfig,
   ImageAnalysisConfig,
+  AttributionConfig,
   CursorConfig,
 } from './unified-config-types';
 import { validateCompositeTiers } from '../cliproxy/composite-validator';
@@ -234,6 +236,10 @@ function validateCompositeVariants(config: UnifiedConfig): void {
  */
 function mergeWithDefaults(partial: Partial<UnifiedConfig>): UnifiedConfig {
   const defaults = createEmptyUnifiedConfig();
+  const partialAttribution = partial.attribution as
+    | { resolverVersion?: unknown; resolver_version?: unknown }
+    | undefined;
+
   return {
     version: partial.version ?? defaults.version,
     setup_completed: partial.setup_completed,
@@ -427,6 +433,11 @@ function mergeWithDefaults(partial: Partial<UnifiedConfig>): UnifiedConfig {
       timeout: partial.image_analysis?.timeout ?? DEFAULT_IMAGE_ANALYSIS_CONFIG.timeout,
       provider_models:
         partial.image_analysis?.provider_models ?? DEFAULT_IMAGE_ANALYSIS_CONFIG.provider_models,
+    },
+    attribution: {
+      resolverVersion: normalizeAttributionResolverVersion(
+        partialAttribution?.resolverVersion ?? partialAttribution?.resolver_version
+      ),
     },
   };
 }
@@ -703,6 +714,22 @@ function generateYamlWithComments(config: UnifiedConfig): string {
     lines.push('');
   }
 
+  // Usage attribution resolver section
+  if (config.attribution) {
+    lines.push('# ----------------------------------------------------------------------------');
+    lines.push('# Attribution: Usage source mapping strategy for account monitoring');
+    lines.push('# resolverVersion:');
+    lines.push('#   v1 = strict account ID/email matching (legacy)');
+    lines.push('#   v2 = account ID + email + nickname + alias normalization (recommended)');
+    lines.push('# ----------------------------------------------------------------------------');
+    lines.push(
+      yaml
+        .dump({ attribution: config.attribution }, { indent: 2, lineWidth: -1, quotingType: '"' })
+        .trim()
+    );
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
@@ -957,6 +984,17 @@ export function getImageAnalysisConfig(): ImageAnalysisConfig {
     timeout: config.image_analysis?.timeout ?? DEFAULT_IMAGE_ANALYSIS_CONFIG.timeout,
     provider_models:
       config.image_analysis?.provider_models ?? DEFAULT_IMAGE_ANALYSIS_CONFIG.provider_models,
+  };
+}
+
+/**
+ * Get attribution resolver configuration.
+ * Returns defaults if not configured.
+ */
+export function getAttributionConfig(): AttributionConfig {
+  const config = loadOrCreateUnifiedConfig();
+  return {
+    resolverVersion: normalizeAttributionResolverVersion(config.attribution?.resolverVersion),
   };
 }
 

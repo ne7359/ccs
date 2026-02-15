@@ -93,6 +93,10 @@ export function getProviderDisplayName(provider: CLIProxyProvider): string {
   return PROVIDER_CAPABILITIES[provider].displayName;
 }
 
+export function getProviderAliases(provider: CLIProxyProvider): readonly string[] {
+  return PROVIDER_CAPABILITIES[provider].aliases;
+}
+
 export function getProvidersByOAuthFlow(flowType: OAuthFlowType): CLIProxyProvider[] {
   return CLIPROXY_PROVIDER_IDS.filter(
     (provider) => PROVIDER_CAPABILITIES[provider].oauthFlow === flowType
