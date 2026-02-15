@@ -16,10 +16,35 @@ import { loadOrCreateUnifiedConfig, saveUnifiedConfig } from '../config/unified-
 import { DEFAULT_COPILOT_CONFIG } from '../config/unified-config-types';
 import { ok, fail, info, color } from '../utils/ui';
 
+export const COPILOT_SUBCOMMANDS = [
+  'auth',
+  'status',
+  'models',
+  'start',
+  'stop',
+  'enable',
+  'disable',
+  'help',
+  '--help',
+  '-h',
+] as const;
+
+export function isCopilotSubcommand(subcommand: string | undefined): boolean {
+  return subcommand ? (COPILOT_SUBCOMMANDS as readonly string[]).includes(subcommand) : false;
+}
+
 /**
  * Handle copilot subcommand.
  */
 export async function handleCopilotCommand(args: string[]): Promise<number> {
+  const { dispatchToolAdapter } = await import('../tools');
+  return dispatchToolAdapter('copilot', args);
+}
+
+/**
+ * Legacy copilot command implementation used by the tool adapter.
+ */
+export async function handleCopilotCommandLegacy(args: string[]): Promise<number> {
   const subcommand = args[0];
 
   switch (subcommand) {

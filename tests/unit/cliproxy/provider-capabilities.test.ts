@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'bun:test';
 import {
   CLIPROXY_PROVIDER_IDS,
+  DEVICE_CODE_PROVIDER_IDS,
   getOAuthCallbackPort,
   getOAuthFlowType,
+  getProviderAliases,
+  getProviderDefaultImageAnalysisModel,
+  getProviderLogoAssetPath,
   getProviderDisplayName,
   getProvidersByOAuthFlow,
+  getProvidersSupportingImageAnalysis,
+  IMAGE_ANALYSIS_PROVIDER_IDS,
+  NICKNAME_REQUIRED_PROVIDER_IDS,
   isCLIProxyProvider,
   mapExternalProviderName,
+  providerRequiresNickname,
+  supportsProviderImageAnalysis,
+  supportsProviderQuota,
 } from '../../../src/cliproxy/provider-capabilities';
 import {
   OAUTH_CALLBACK_PORTS as DIAGNOSTIC_CALLBACK_PORTS,
@@ -44,6 +54,7 @@ describe('provider-capabilities', () => {
 
   it('returns providers by OAuth flow capability', () => {
     expect(getProvidersByOAuthFlow('device_code')).toEqual(['qwen', 'kiro', 'ghcp']);
+    expect(DEVICE_CODE_PROVIDER_IDS).toEqual(['qwen', 'kiro', 'ghcp']);
     expect(getProvidersByOAuthFlow('authorization_code')).toEqual([
       'gemini',
       'codex',
@@ -68,6 +79,20 @@ describe('provider-capabilities', () => {
     expect(getOAuthCallbackPort('kiro')).toBeNull();
     expect(getOAuthCallbackPort('gemini')).toBe(8085);
     expect(getProviderDisplayName('agy')).toBe('AntiGravity');
+    expect(getProviderAliases('ghcp')).toEqual(['github-copilot', 'copilot']);
+    expect(getProviderLogoAssetPath('claude')).toBe('/assets/providers/claude.svg');
+    expect(getProviderDefaultImageAnalysisModel('kiro')).toBe('kiro-claude-haiku-4-5');
+  });
+
+  it('exposes provider feature flags and derived provider lists', () => {
+    expect(supportsProviderQuota('agy')).toBe(true);
+    expect(supportsProviderQuota('gemini')).toBe(false);
+    expect(providerRequiresNickname('ghcp')).toBe(true);
+    expect(providerRequiresNickname('qwen')).toBe(false);
+    expect(supportsProviderImageAnalysis('iflow')).toBe(true);
+    expect(NICKNAME_REQUIRED_PROVIDER_IDS).toEqual(['kiro', 'ghcp']);
+    expect(IMAGE_ANALYSIS_PROVIDER_IDS).toEqual(CLIPROXY_PROVIDER_IDS);
+    expect(getProvidersSupportingImageAnalysis()).toEqual(CLIPROXY_PROVIDER_IDS);
   });
 
   it('keeps diagnostics flow metadata in sync with provider capabilities', () => {

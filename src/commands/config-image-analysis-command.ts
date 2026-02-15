@@ -12,6 +12,10 @@ import {
   loadOrCreateUnifiedConfig,
 } from '../config/unified-config-loader';
 import { DEFAULT_IMAGE_ANALYSIS_CONFIG } from '../config/unified-config-types';
+import {
+  getProvidersSupportingImageAnalysis,
+  mapExternalProviderName,
+} from '../cliproxy/provider-capabilities';
 
 interface ImageAnalysisCommandOptions {
   enable?: boolean;
@@ -52,6 +56,8 @@ function parseArgs(args: string[]): ImageAnalysisCommandOptions {
 }
 
 function showHelp(): void {
+  const providersWithVisionSupport = getProvidersSupportingImageAnalysis().join(', ');
+
   console.log('');
   console.log(header('ccs config image-analysis'));
   console.log('');
@@ -72,7 +78,7 @@ function showHelp(): void {
   console.log('');
 
   console.log(subheader('Provider Models:'));
-  console.log(`  ${dim('Providers with vision support: agy, gemini, codex, kiro, ghcp, claude')}`);
+  console.log(`  ${dim(`Providers with vision support: ${providersWithVisionSupport}`)}`);
   console.log(`  ${dim('Default model: gemini-2.5-flash (most providers)')}`);
   console.log('');
 
@@ -153,6 +159,8 @@ export async function handleConfigImageAnalysisCommand(args: string[]): Promise<
   await initUI();
 
   const options = parseArgs(args);
+  const validProviders = getProvidersSupportingImageAnalysis();
+  const validProviderSet = new Set(validProviders);
 
   if (options.help) {
     showHelp();
@@ -186,8 +194,8 @@ export async function handleConfigImageAnalysisCommand(args: string[]): Promise<
   }
 
   if (options.setModel) {
-    const validProviders = ['agy', 'gemini', 'codex', 'kiro', 'ghcp', 'claude', 'qwen', 'iflow'];
-    if (!validProviders.includes(options.setModel.provider)) {
+    const canonicalProvider = mapExternalProviderName(options.setModel.provider);
+    if (!canonicalProvider || !validProviderSet.has(canonicalProvider)) {
       console.error(fail(`Invalid provider: ${options.setModel.provider}`));
       console.error(info(`Valid providers: ${validProviders.join(', ')}`));
       process.exit(1);
@@ -200,7 +208,7 @@ export async function handleConfigImageAnalysisCommand(args: string[]): Promise<
     }
     imageConfig.provider_models = {
       ...imageConfig.provider_models,
-      [options.setModel.provider]: model,
+      [canonicalProvider]: model,
     };
     hasChanges = true;
   }

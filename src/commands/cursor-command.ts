@@ -42,6 +42,14 @@ export const CURSOR_SUBCOMMANDS = [
  * Handle cursor subcommand.
  */
 export async function handleCursorCommand(args: string[]): Promise<number> {
+  const { dispatchToolAdapter } = await import('../tools');
+  return dispatchToolAdapter('cursor', args);
+}
+
+/**
+ * Legacy cursor command implementation used by the tool adapter.
+ */
+export async function handleCursorCommandLegacy(args: string[]): Promise<number> {
   const subcommand = args[0];
 
   switch (subcommand) {

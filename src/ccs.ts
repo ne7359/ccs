@@ -525,6 +525,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Special case: tool command (adapter-based integrations)
+  if (firstArg === 'tool') {
+    const { handleToolCommand } = await import('./commands/tool-command');
+    const exitCode = await handleToolCommand(args.slice(1));
+    process.exit(exitCode);
+  }
+
   // Special case: setup command (first-time wizard)
   if (firstArg === 'setup' || firstArg === '--setup') {
     const { handleSetupCommand } = await import('./commands/setup-command');
@@ -542,23 +549,14 @@ async function main(): Promise<void> {
 
   // Special case: copilot command (GitHub Copilot integration)
   // Only route to command handler for known subcommands, otherwise treat as profile
-  const COPILOT_SUBCOMMANDS = [
-    'auth',
-    'status',
-    'models',
-    'start',
-    'stop',
-    'enable',
-    'disable',
-    'help',
-    '--help',
-    '-h',
-  ];
-  if (firstArg === 'copilot' && args.length > 1 && COPILOT_SUBCOMMANDS.includes(args[1])) {
-    // `ccs copilot <subcommand>` - route to copilot command handler
-    const { handleCopilotCommand } = await import('./commands/copilot-command');
-    const exitCode = await handleCopilotCommand(args.slice(1));
-    process.exit(exitCode);
+  if (firstArg === 'copilot' && args.length > 1) {
+    const { handleCopilotCommand, isCopilotSubcommand } = await import(
+      './commands/copilot-command'
+    );
+    if (isCopilotSubcommand(args[1])) {
+      const exitCode = await handleCopilotCommand(args.slice(1));
+      process.exit(exitCode);
+    }
   }
 
   // Special case: headless delegation (-p flag)

@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
+import { getProviderDeviceCodeDisplayName } from '@/lib/provider-config';
 
 export interface DeviceCodePrompt {
   sessionId: string;
@@ -23,13 +24,6 @@ interface DeviceCodeState {
   error: string | null;
 }
 
-/** Provider display names for user-friendly messages */
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  ghcp: 'GitHub Copilot',
-  kiro: 'Kiro (AWS)',
-  qwen: 'Qwen Code',
-};
-
 export function useDeviceCode() {
   const [state, setState] = useState<DeviceCodeState>({
     isOpen: false,
@@ -44,7 +38,7 @@ export function useDeviceCode() {
 
       if (data.type === 'deviceCodeReceived') {
         console.log('[DeviceCode] Received prompt:', data.sessionId);
-        const displayName = PROVIDER_DISPLAY_NAMES[data.provider as string] || data.provider;
+        const displayName = getProviderDeviceCodeDisplayName(data.provider as string);
         toast.info(`${displayName} authorization required`);
 
         setState({
@@ -62,8 +56,7 @@ export function useDeviceCode() {
         console.log('[DeviceCode] Auth completed:', data.sessionId);
         setState((prev) => {
           if (prev.prompt && prev.prompt.sessionId === data.sessionId) {
-            const displayName =
-              PROVIDER_DISPLAY_NAMES[prev.prompt.provider] || prev.prompt.provider;
+            const displayName = getProviderDeviceCodeDisplayName(prev.prompt.provider);
             toast.success(`${displayName} authentication successful!`);
             return { isOpen: false, prompt: null, error: null };
           }
@@ -73,8 +66,7 @@ export function useDeviceCode() {
         console.log('[DeviceCode] Auth failed:', data.sessionId, data.error);
         setState((prev) => {
           if (prev.prompt && prev.prompt.sessionId === data.sessionId) {
-            const displayName =
-              PROVIDER_DISPLAY_NAMES[prev.prompt.provider] || prev.prompt.provider;
+            const displayName = getProviderDeviceCodeDisplayName(prev.prompt.provider);
             toast.error(`${displayName} authentication failed`);
             return { isOpen: false, prompt: null, error: data.error as string };
           }
