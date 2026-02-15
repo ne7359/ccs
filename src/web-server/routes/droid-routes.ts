@@ -4,6 +4,7 @@ import {
   checkDroidHealth,
   createDefaultDroidConfig,
   readDroidConfig,
+  validateDroidEndpoint,
   writeDroidConfigAtomic,
   type DroidConfig,
 } from '../../tools/adapters/droid-config';
@@ -25,18 +26,6 @@ function asNonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function validateEndpoint(endpoint: string): string | null {
-  try {
-    const parsed = new URL(endpoint);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return 'Endpoint must use http or https';
-    }
-    return null;
-  } catch {
-    return 'Endpoint must be a valid URL';
-  }
-}
-
 function buildConfigUpdate(
   existing: DroidConfig,
   payload: DroidConfigPayload
@@ -56,7 +45,7 @@ function buildConfigUpdate(
     if (!endpointValue) {
       errors.push('endpoint must be a non-empty string');
     } else {
-      const endpointError = validateEndpoint(endpointValue);
+      const endpointError = validateDroidEndpoint(endpointValue);
       if (endpointError) {
         errors.push(endpointError);
       } else {

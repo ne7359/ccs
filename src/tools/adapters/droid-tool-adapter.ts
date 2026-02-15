@@ -8,6 +8,7 @@ import {
   getDroidConfigPath,
   getDroidDir,
   readDroidConfig,
+  validateDroidEndpoint,
   writeDroidConfigAtomic,
   type DroidConfig,
 } from './droid-config';
@@ -195,6 +196,11 @@ async function handleSetup(args: string[]): Promise<number> {
   }
 
   const config = normalizeSetupConfig(existing, flags, promptValues);
+  const endpointError = validateDroidEndpoint(config.endpoint);
+  if (endpointError) {
+    console.error(fail(endpointError));
+    return 1;
+  }
   await writeDroidConfigAtomic(config);
 
   console.log(ok(`Droid config ready: ${getDroidConfigPath()}`));

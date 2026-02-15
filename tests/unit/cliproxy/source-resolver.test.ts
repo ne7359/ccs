@@ -163,6 +163,17 @@ describe('source resolver', () => {
     expect(whitespaceResult.matchStep).toBe('unmapped');
   });
 
+  it('treats unknown provider hints as unmapped scope', () => {
+    const accounts = createAccountsMap();
+    accounts.codex = [makeAccount('codex', 'codex-1', { nickname: 'team-main' })];
+
+    const resolver = createSourceResolver(accounts, 'v2');
+    const result = resolver.resolve('team-main', 'unknown-provider');
+
+    expect(result.matched).toBe(false);
+    expect(result.matchStep).toBe('unmapped');
+  });
+
   it('returns unmapped when no strategy matches', () => {
     const accounts = createAccountsMap();
     const resolver = createSourceResolver(accounts, 'v2');

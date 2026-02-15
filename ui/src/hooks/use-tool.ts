@@ -151,8 +151,8 @@ export function useTool(toolId: string | undefined): UseToolResult {
 
   return {
     tool,
-    isLoading: query.isLoading,
+    isLoading: query.isLoading || query.isFetching,
     error: (query.error as Error | null) ?? null,
-    isRegistryReady: Array.isArray(query.data?.tools),
+    isRegistryReady: Array.isArray(query.data?.tools) && !query.isFetching,
   };
 }

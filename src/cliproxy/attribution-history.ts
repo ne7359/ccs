@@ -180,13 +180,6 @@ export class AttributionHistoryStore {
       return toSourceResolution(source, normalizedSource, exactRecord);
     }
 
-    if (providerHint) {
-      const wildcardRecord = this.records.get(buildHistoryKey(normalizedSource, undefined));
-      if (wildcardRecord) {
-        return toSourceResolution(source, normalizedSource, wildcardRecord);
-      }
-    }
-
     return null;
   }
 

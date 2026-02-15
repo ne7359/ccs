@@ -112,4 +112,22 @@ describe('attribution-history', () => {
     expect(resolved?.provider).toBe('ghcp');
     expect(resolved?.accountKey).toBe('ghcp:ghcp-1');
   });
+
+  it('does not fallback to wildcard mapping when provider hint is present', async () => {
+    const store = await AttributionHistoryStore.load();
+    store.remember(
+      'shared-source',
+      undefined,
+      makeResolution('shared-source', {
+        provider: 'codex',
+        accountId: 'codex-1',
+        accountKey: 'codex:codex-1',
+      })
+    );
+    await store.persist();
+
+    const reloaded = await AttributionHistoryStore.load();
+    expect(reloaded.resolve('shared-source', 'gemini')).toBeNull();
+    expect(reloaded.resolve('shared-source')).not.toBeNull();
+  });
 });

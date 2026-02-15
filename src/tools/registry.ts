@@ -47,9 +47,20 @@ export interface RegisteredToolRouteBinding extends ToolRouteBinding {
   toolId: string;
 }
 
+function freezeToolAdapter(adapter: ToolAdapter): ToolAdapter {
+  return Object.freeze({
+    ...adapter,
+    subcommands: Object.freeze([...adapter.subcommands]),
+    routes: adapter.routes
+      ? Object.freeze(adapter.routes.map((binding) => Object.freeze({ ...binding })))
+      : undefined,
+  });
+}
+
 function buildToolAdapterMap(adapters: readonly ToolAdapter[]): Map<string, ToolAdapter> {
   const map = new Map<string, ToolAdapter>();
   for (const adapter of adapters) {
+    const frozenAdapter = freezeToolAdapter(adapter);
     const normalizedId = normalizeToolId(adapter.id);
     if (normalizedId.length === 0) {
       throw new Error('Tool adapter id cannot be empty');
@@ -60,7 +71,7 @@ function buildToolAdapterMap(adapters: readonly ToolAdapter[]): Map<string, Tool
         `Duplicate tool adapter id '${adapter.id}' conflicts with '${existing.id}' (normalized: '${normalizedId}')`
       );
     }
-    map.set(normalizedId, adapter);
+    map.set(normalizedId, frozenAdapter);
   }
   return map;
 }
@@ -77,10 +88,12 @@ function buildToolRouteBindings(adapters: readonly ToolAdapter[]): RegisteredToo
         throw new Error(`Duplicate tool route binding detected (${routeKey})`);
       }
       seenRouteKeys.add(routeKey);
-      bindings.push({
-        ...validatedBinding,
-        toolId: adapter.id,
-      });
+      bindings.push(
+        Object.freeze({
+          ...validatedBinding,
+          toolId: adapter.id,
+        })
+      );
     }
   }
 

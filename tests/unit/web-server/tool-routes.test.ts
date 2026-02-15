@@ -156,6 +156,27 @@ describe('tool-routes', () => {
     10000
   );
 
+  it('rejects invalid droid endpoint updates via generic route', async () => {
+    const { server, baseUrl } = await startApiServer();
+
+    try {
+      const updateResponse = await fetch(`${baseUrl}/api/tools/droid/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profile: 'factory',
+          endpoint: 'not-a-url',
+        }),
+      });
+
+      expect(updateResponse.status).toBe(400);
+      const payload = (await updateResponse.json()) as { error?: string };
+      expect(payload.error).toContain('valid URL');
+    } finally {
+      await stopServer(server);
+    }
+  });
+
   it('returns 404 for unknown tool IDs', async () => {
     const { server, baseUrl } = await startApiServer();
 

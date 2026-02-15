@@ -136,10 +136,8 @@ export function DroidPage() {
     );
   }
 
-  const statusError =
-    (statusQuery.error as Error | null) ??
-    (configQuery.error as Error | null) ??
-    (doctorQuery.error as Error | null);
+  const statusError = (statusQuery.error as Error | null) ?? (configQuery.error as Error | null);
+  const doctorError = doctorQuery.error as Error | null;
 
   if (statusError) {
     return (
@@ -155,7 +153,7 @@ export function DroidPage() {
     );
   }
 
-  const healthy = statusQuery.data?.healthy ?? false;
+  const healthy = doctorQuery.data?.healthy ?? statusQuery.data?.healthy ?? false;
 
   return (
     <div className="mx-auto max-w-4xl p-6 space-y-5">
@@ -202,6 +200,11 @@ export function DroidPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Doctor Checks
         </h2>
+        {doctorError ? (
+          <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-800 dark:text-yellow-200">
+            Doctor endpoint unavailable: {doctorError.message}
+          </div>
+        ) : null}
         <div className="grid gap-3">
           {statusChecks.map((check) => (
             <CheckRow key={check.label} {...check} />

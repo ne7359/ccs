@@ -54,6 +54,10 @@ function sanitizeForLog(value: string): string {
   return value.replace(/[^\x20-\x7E]/g, '?').slice(0, 120);
 }
 
+function hasExplicitProviderHint(providerHint: string | undefined): boolean {
+  return typeof providerHint === 'string' && providerHint.trim().length > 0;
+}
+
 function getCanonicalProvider(providerHint: string | undefined): CLIProxyProvider | null {
   if (!providerHint) {
     return null;
@@ -215,10 +219,15 @@ export function createSourceResolver(
   }
 
   const selectScope = (providerHint?: string): ResolverAccountCandidate[] => {
-    const provider = getCanonicalProvider(providerHint);
-    if (!provider) {
+    if (!hasExplicitProviderHint(providerHint)) {
       return candidates;
     }
+
+    const provider = getCanonicalProvider(providerHint);
+    if (!provider) {
+      return [];
+    }
+
     return candidatesByProvider.get(provider) ?? [];
   };
 

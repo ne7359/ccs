@@ -109,7 +109,7 @@ export async function writeDroidConfigAtomic(config: DroidConfig): Promise<void>
   }
 }
 
-function validateEndpointFormat(endpoint: string): string | null {
+export function validateDroidEndpoint(endpoint: string): string | null {
   try {
     const url = new URL(endpoint);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -122,7 +122,7 @@ function validateEndpointFormat(endpoint: string): string | null {
 }
 
 async function probeEndpointAndModels(config: DroidConfig): Promise<ProbeResult> {
-  const formatError = validateEndpointFormat(config.endpoint);
+  const formatError = validateDroidEndpoint(config.endpoint);
   if (formatError) {
     return {
       endpointReachable: false,

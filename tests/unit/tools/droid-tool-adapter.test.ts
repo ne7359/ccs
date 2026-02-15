@@ -72,6 +72,19 @@ describe('droid-tool-adapter', () => {
     expect(errorLines.some((line) => line.includes('--endpoint requires --profile'))).toBe(true);
   });
 
+  it('rejects invalid endpoint URLs in setup flags', async () => {
+    const exitCode = await droidToolAdapter.run([
+      'setup',
+      '--profile',
+      'factory',
+      '--endpoint',
+      'not-a-url',
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(errorLines.some((line) => line.includes('valid URL'))).toBe(true);
+  });
+
   it('prints droid api key env export when configured', async () => {
     const configPath = path.join(tempHome, '.ccs', 'tools', 'droid', 'config.json');
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -100,4 +113,3 @@ describe('droid-tool-adapter', () => {
     expect(errorLines.some((line) => line.includes('Config missing'))).toBe(true);
   });
 });
-

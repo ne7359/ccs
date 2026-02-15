@@ -23,6 +23,16 @@ describe('tool registry', () => {
     expect(getToolAdapter('unknown')).toBeUndefined();
   });
 
+  it('returns immutable adapter metadata to prevent test leakage', () => {
+    const adapter = getToolAdapter('droid');
+    expect(adapter).toBeDefined();
+
+    expect(() => {
+      (adapter?.subcommands as string[]).push('mutated');
+    }).toThrow();
+    expect(getToolAdapter('droid')?.subcommands.includes('mutated')).toBe(false);
+  });
+
   it('reports known subcommands', () => {
     expect(hasToolSubcommand('droid', 'setup')).toBe(true);
     expect(hasToolSubcommand('droid', 'missing')).toBe(false);
@@ -38,6 +48,10 @@ describe('tool registry', () => {
     expect(bindings.every((binding) => binding.auth === 'required' || binding.auth === 'optional')).toBe(
       true
     );
+    expect(() => {
+      (bindings[0] as { path: string }).path = '/mutated';
+    }).toThrow();
+    expect(listToolRouteBindings()[0]?.path).not.toBe('/mutated');
   });
 
   it('rejects duplicate adapter IDs at startup validation', () => {

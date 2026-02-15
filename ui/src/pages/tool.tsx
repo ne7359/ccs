@@ -32,10 +32,6 @@ export function ToolPage() {
     );
   }
 
-  if (!tool && isRegistryReady) {
-    return <Navigate to="/" replace />;
-  }
-
   if (!tool && error) {
     return (
       <div className="max-w-3xl mx-auto p-6">
@@ -51,6 +47,25 @@ export function ToolPage() {
             Use the CLI command: <code className="font-mono">ccs tool {toolId} help</code>
           </p>
           <p className="text-xs text-red-500">{error.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!tool && isRegistryReady) {
+    return (
+      <div className="max-w-3xl mx-auto p-6">
+        <div className="rounded-xl border border-border bg-card p-6 space-y-3">
+          <div className="flex items-center gap-2 text-lg font-semibold">
+            <Wrench className="h-5 w-5" />
+            <span>{toolId}</span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Tool is not registered in this CCS installation.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            List available tools with: <code className="font-mono">ccs tool help</code>
+          </p>
         </div>
       </div>
     );
