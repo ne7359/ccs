@@ -9,6 +9,7 @@ import InstanceManager from '../management/instance-manager';
 import ProfileRegistry from './profile-registry';
 import { isAccountContextMetadata, resolveAccountContextPolicy } from './account-context';
 import type { ProfileType } from '../types/profile';
+import { getProfileLookupCandidates, resolveAliasToCanonical } from '../utils/profile-compat';
 
 export interface ProfileContinuityInheritanceInput {
   profileName: string;
@@ -50,7 +51,14 @@ function loadLegacyContinuityInheritanceMap(): Record<string, string> {
     }
 
     return normalized;
-  } catch {
+  } catch (error) {
+    if (process.env.CCS_DEBUG) {
+      console.error(
+        warn(
+          `Failed to parse legacy continuity mapping at "${configJsonPath}": ${(error as Error).message}`
+        )
+      );
+    }
     return {};
   }
 }
@@ -59,13 +67,38 @@ function resolveMappedAccount(
   profileName: string,
   inheritFromAccount: Record<string, string>
 ): string | undefined {
-  const mapped = inheritFromAccount[profileName];
-  if (typeof mapped !== 'string') {
-    return undefined;
+  const candidates = new Set<string>([
+    ...getProfileLookupCandidates(profileName),
+    resolveAliasToCanonical(profileName),
+  ]);
+
+  for (const candidate of candidates) {
+    const mapped = inheritFromAccount[candidate];
+    if (typeof mapped !== 'string') {
+      continue;
+    }
+
+    const normalized = mapped.trim();
+    if (normalized.length > 0) {
+      return normalized;
+    }
   }
 
-  const normalized = mapped.trim();
-  return normalized.length > 0 ? normalized : undefined;
+  const normalizedCandidates = new Set(
+    [...candidates].map((candidate) => candidate.trim().toLowerCase()).filter(Boolean)
+  );
+  for (const [mappedProfileName, mappedAccountName] of Object.entries(inheritFromAccount)) {
+    if (!normalizedCandidates.has(mappedProfileName.trim().toLowerCase())) {
+      continue;
+    }
+
+    const normalized = mappedAccountName.trim();
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -93,37 +126,36 @@ export async function resolveProfileContinuityInheritance(
     return {};
   }
 
-  const registry = new ProfileRegistry();
-  const profiles = registry.getAllProfilesMerged();
-  const mappedProfile = profiles[sourceAccount];
-  if (!mappedProfile || mappedProfile.type !== 'account') {
+  try {
+    const registry = new ProfileRegistry();
+    const profiles = registry.getAllProfilesMerged();
+    const mappedProfile = profiles[sourceAccount];
+    if (!mappedProfile || mappedProfile.type !== 'account') {
+      console.error(
+        warn(
+          `Continuity inheritance skipped for "${input.profileName}": source "${sourceAccount}" not found or not an account profile`
+        )
+      );
+      return {};
+    }
+
+    const contextPolicy = resolveAccountContextPolicy(
+      isAccountContextMetadata(mappedProfile) ? mappedProfile : undefined
+    );
+    const instanceMgr = new InstanceManager();
+    const instancePath = await instanceMgr.ensureInstance(sourceAccount, contextPolicy);
+
+    return {
+      sourceAccount,
+      claudeConfigDir: instancePath,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error(
       warn(
-        `Continuity inheritance skipped for "${input.profileName}": source account "${sourceAccount}" not found`
+        `Continuity inheritance skipped for "${input.profileName}": failed to initialize source "${sourceAccount}" (${message})`
       )
     );
     return {};
   }
-
-  const contextPolicy = resolveAccountContextPolicy(
-    isAccountContextMetadata(mappedProfile) ? mappedProfile : undefined
-  );
-  const instanceMgr = new InstanceManager();
-  const instancePath = await instanceMgr.ensureInstance(sourceAccount, contextPolicy);
-
-  // Best-effort touch only; execution must continue even if touch fails.
-  try {
-    if (registry.hasAccountUnified(sourceAccount)) {
-      registry.touchAccountUnified(sourceAccount);
-    } else if (registry.hasProfile(sourceAccount)) {
-      registry.touchProfile(sourceAccount);
-    }
-  } catch {
-    // Ignore metadata touch failure.
-  }
-
-  return {
-    sourceAccount,
-    claudeConfigDir: instancePath,
-  };
 }

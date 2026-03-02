@@ -45,13 +45,6 @@ describe('resolveProfileContinuityInheritance', () => {
         },
       }
     );
-    const hasUnifiedSpy = spyOn(ProfileRegistry.prototype, 'hasAccountUnified').mockReturnValue(true);
-    const touchUnifiedSpy = spyOn(ProfileRegistry.prototype, 'touchAccountUnified').mockImplementation(
-      () => undefined
-    );
-    const touchLegacySpy = spyOn(ProfileRegistry.prototype, 'touchProfile').mockImplementation(
-      () => undefined
-    );
 
     const result = await resolveProfileContinuityInheritance({
       profileName: 'glm',
@@ -64,9 +57,6 @@ describe('resolveProfileContinuityInheritance', () => {
       claudeConfigDir: '/tmp/.ccs/instances/pro',
     });
     expect(getProfilesSpy).toHaveBeenCalledTimes(1);
-    expect(hasUnifiedSpy).toHaveBeenCalledWith('pro');
-    expect(touchUnifiedSpy).toHaveBeenCalledWith('pro');
-    expect(touchLegacySpy).not.toHaveBeenCalled();
     expect(ensureInstanceSpy).toHaveBeenCalledWith('pro', {
       mode: 'shared',
       group: 'team-alpha',
@@ -101,11 +91,6 @@ describe('resolveProfileContinuityInheritance', () => {
         last_used: null,
       },
     });
-    spyOn(ProfileRegistry.prototype, 'hasAccountUnified').mockReturnValue(false);
-    spyOn(ProfileRegistry.prototype, 'hasProfile').mockReturnValue(true);
-    const touchLegacySpy = spyOn(ProfileRegistry.prototype, 'touchProfile').mockImplementation(
-      () => undefined
-    );
     spyOn(InstanceManager.prototype, 'ensureInstance').mockResolvedValue('/tmp/.ccs/instances/work');
 
     const result = await resolveProfileContinuityInheritance({
@@ -118,7 +103,6 @@ describe('resolveProfileContinuityInheritance', () => {
       sourceAccount: 'work',
       claudeConfigDir: '/tmp/.ccs/instances/work',
     });
-    expect(touchLegacySpy).toHaveBeenCalledWith('work');
   });
 
   it('returns empty result when mapped source account does not exist', async () => {
@@ -195,8 +179,6 @@ describe('resolveProfileContinuityInheritance', () => {
         last_used: null,
       },
     });
-    spyOn(ProfileRegistry.prototype, 'hasAccountUnified').mockReturnValue(true);
-    spyOn(ProfileRegistry.prototype, 'touchAccountUnified').mockImplementation(() => undefined);
     spyOn(InstanceManager.prototype, 'ensureInstance').mockResolvedValue('/tmp/.ccs/instances/pro');
 
     const result = await resolveProfileContinuityInheritance({
@@ -209,5 +191,100 @@ describe('resolveProfileContinuityInheritance', () => {
       sourceAccount: 'pro',
       claudeConfigDir: '/tmp/.ccs/instances/pro',
     });
+  });
+
+  it('returns empty result when mapped source exists but is not an account profile', async () => {
+    spyOn(configLoader, 'loadOrCreateUnifiedConfig').mockReturnValue({
+      version: 8,
+      continuity: {
+        inherit_from_account: {
+          glm: 'settings-profile',
+        },
+      },
+    } as ReturnType<typeof configLoader.loadOrCreateUnifiedConfig>);
+
+    spyOn(ProfileRegistry.prototype, 'getAllProfilesMerged').mockReturnValue({
+      'settings-profile': {
+        type: 'settings',
+        created: '2026-03-01T00:00:00.000Z',
+        last_used: null,
+      },
+    });
+    const ensureInstanceSpy = spyOn(InstanceManager.prototype, 'ensureInstance');
+
+    const result = await resolveProfileContinuityInheritance({
+      profileName: 'glm',
+      profileType: 'settings',
+      target: 'claude',
+    });
+
+    expect(result).toEqual({});
+    expect(ensureInstanceSpy).not.toHaveBeenCalled();
+  });
+
+  it('supports profile alias lookup when continuity mapping uses legacy key', async () => {
+    spyOn(configLoader, 'loadOrCreateUnifiedConfig').mockReturnValue({
+      version: 8,
+      continuity: {
+        inherit_from_account: {
+          kimi: 'pro',
+        },
+      },
+    } as ReturnType<typeof configLoader.loadOrCreateUnifiedConfig>);
+
+    spyOn(ProfileRegistry.prototype, 'getAllProfilesMerged').mockReturnValue({
+      pro: {
+        type: 'account',
+        created: '2026-03-01T00:00:00.000Z',
+        last_used: null,
+      },
+    });
+    const ensureInstanceSpy = spyOn(InstanceManager.prototype, 'ensureInstance').mockResolvedValue(
+      '/tmp/.ccs/instances/pro'
+    );
+
+    const result = await resolveProfileContinuityInheritance({
+      profileName: 'km',
+      profileType: 'settings',
+      target: 'claude',
+    });
+
+    expect(result).toEqual({
+      sourceAccount: 'pro',
+      claudeConfigDir: '/tmp/.ccs/instances/pro',
+    });
+    expect(ensureInstanceSpy).toHaveBeenCalledWith('pro', {
+      mode: 'isolated',
+    });
+  });
+
+  it('fails open when source account instance initialization throws', async () => {
+    spyOn(configLoader, 'loadOrCreateUnifiedConfig').mockReturnValue({
+      version: 8,
+      continuity: {
+        inherit_from_account: {
+          glm: 'pro',
+        },
+      },
+    } as ReturnType<typeof configLoader.loadOrCreateUnifiedConfig>);
+
+    spyOn(ProfileRegistry.prototype, 'getAllProfilesMerged').mockReturnValue({
+      pro: {
+        type: 'account',
+        created: '2026-03-01T00:00:00.000Z',
+        last_used: null,
+      },
+    });
+    spyOn(InstanceManager.prototype, 'ensureInstance').mockRejectedValue(
+      new Error('instance init failed')
+    );
+
+    const result = await resolveProfileContinuityInheritance({
+      profileName: 'glm',
+      profileType: 'settings',
+      target: 'claude',
+    });
+
+    expect(result).toEqual({});
   });
 });
