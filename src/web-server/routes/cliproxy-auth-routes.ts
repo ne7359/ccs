@@ -112,6 +112,13 @@ export function getStartUrlUnsupportedReason(
   return null;
 }
 
+export function getStartAuthFailureMessage(provider: CLIProxyProvider): string {
+  if (provider === 'ghcp') {
+    return 'Authentication failed, was cancelled, or GitHub Copilot verification did not complete. Ensure the account has an active Copilot subscription and retry.';
+  }
+  return 'Authentication failed or was cancelled';
+}
+
 /**
  * GET /api/cliproxy/auth - Get auth status for built-in CLIProxy profiles
  * Also fetches CLIProxyAPI stats to update lastUsedAt for active providers
@@ -503,7 +510,9 @@ router.post('/:provider/start', async (req: Request, res: Response): Promise<voi
         },
       });
     } else {
-      res.status(400).json({ error: 'Authentication failed or was cancelled' });
+      res.status(400).json({
+        error: getStartAuthFailureMessage(provider as CLIProxyProvider),
+      });
     }
   } catch (error) {
     respondInternalError(res, error, 'Failed to start OAuth flow.');

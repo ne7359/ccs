@@ -217,13 +217,67 @@ function displayUrlFromStderr(
   }
 }
 
+const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;]*m/g;
+
+export function extractLikelyAuthFailureFromStderr(
+  provider: CLIProxyProvider,
+  stderrData: string
+): string | null {
+  // Keep this scoped to ghcp to avoid over-classifying other providers.
+  if (provider !== 'ghcp') {
+    return null;
+  }
+
+  if (!stderrData.trim()) {
+    return null;
+  }
+
+  const normalizedLines = stderrData
+    .split('\n')
+    .map((line) => line.replace(ANSI_ESCAPE_REGEX, '').trim())
+    .filter(Boolean)
+    .map((line) => {
+      const messageIndex = line.indexOf('msg="');
+      if (messageIndex >= 0) {
+        const message = line
+          .slice(messageIndex + 5)
+          .replace(/"$/, '')
+          .trim();
+        if (message) {
+          return message;
+        }
+      }
+      return line;
+    });
+
+  const prioritizedPatterns = [
+    /github copilot authentication failed:\s*(.+)/i,
+    /authentication failed:\s*(.+)/i,
+    /failed to verify copilot access[^:]*:\s*(.+)/i,
+    /failed to save auth:\s*(.+)/i,
+  ];
+
+  for (let i = normalizedLines.length - 1; i >= 0; i--) {
+    const line = normalizedLines[i];
+    for (const pattern of prioritizedPatterns) {
+      const match = line.match(pattern);
+      if (match?.[1]?.trim()) {
+        return match[1].trim().slice(0, 240);
+      }
+    }
+  }
+
+  return null;
+}
+
 /** Handle token not found after successful process exit */
 async function handleTokenNotFound(
   provider: CLIProxyProvider,
   callbackPort: number | null,
   tokenDir: string,
   nickname: string | undefined,
-  verbose: boolean
+  verbose: boolean,
+  failureReason?: string
 ): Promise<AccountInfo | null> {
   // Kiro-specific: Try auto-import from Kiro IDE
   if (provider === 'kiro') {
@@ -248,6 +302,18 @@ async function handleTokenNotFound(
 
   // Default behavior for other providers
   console.log('');
+
+  if (failureReason) {
+    console.log(fail('Authentication completed but token was not persisted'));
+    console.log(`    ${failureReason}`);
+    console.log('');
+    console.log('This usually means provider-side authorization was accepted,');
+    console.log('but CLIProxy failed a post-auth verification or token save step.');
+    console.log('');
+    console.log(`Try: ccs ${provider} --auth --verbose`);
+    return null;
+  }
+
   console.log(fail('Token not found after authentication'));
   console.log('');
   console.log('The browser showed success but callback was not received.');
@@ -470,11 +536,13 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
 
           resolve(registerAccountFromToken(provider, tokenDir, nickname));
         } else {
+          const failureReason = extractLikelyAuthFailureFromStderr(provider, state.stderrData);
+
           // Emit device code failure event for UI
           if (isDeviceCodeFlow && state.deviceCodeDisplayed) {
             deviceCodeEvents.emit('deviceCode:failed', {
               sessionId: state.sessionId,
-              error: 'Token not found after authentication',
+              error: failureReason || 'Token not found after authentication',
             });
           }
 
@@ -484,7 +552,8 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
             callbackPort,
             tokenDir,
             nickname,
-            verbose
+            verbose,
+            failureReason || undefined
           );
           resolve(account);
         }
