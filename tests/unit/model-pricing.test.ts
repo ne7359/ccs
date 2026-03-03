@@ -191,6 +191,17 @@ describe('model-pricing', () => {
       const cost = calculateCost(usage, 'gemini-2.0-flash-exp');
       expect(cost).toBe(0); // Experimental models are free
     });
+
+    it('should calculate Claude Opus 4.6 cost including cache token rates', () => {
+      const usage: TokenUsage = {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheCreationTokens: 1_000_000,
+        cacheReadTokens: 1_000_000,
+      };
+      const cost = calculateCost(usage, 'claude-opus-4-6');
+      expect(cost).toBe(36.75); // 5 + 25 + 6.25 + 0.5
+    });
   });
 
   describe('getKnownModels', () => {
