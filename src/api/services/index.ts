@@ -16,6 +16,15 @@ export {
   type CreateApiProfileResult,
   type RemoveApiProfileResult,
   type UpdateApiProfileTargetResult,
+  type ProfileValidationIssue,
+  type ProfileValidationSummary,
+  type ApiProfileOrphanCandidate,
+  type DiscoverApiProfileOrphansResult,
+  type RegisterApiProfileOrphansResult,
+  type CopyApiProfileResult,
+  type ApiProfileExportBundle,
+  type ExportApiProfileResult,
+  type ImportApiProfileResult,
 } from './profile-types';
 
 // Profile read operations
@@ -29,6 +38,16 @@ export {
 
 // Profile write operations
 export { createApiProfile, removeApiProfile, updateApiProfileTarget } from './profile-writer';
+
+// Lifecycle validation and operations
+export { validateApiProfileSettingsPayload } from './profile-lifecycle-validation';
+export {
+  discoverApiProfileOrphans,
+  registerApiProfileOrphans,
+  copyApiProfile,
+  exportApiProfile,
+  importApiProfileBundle,
+} from './profile-lifecycle-service';
 
 // OpenRouter catalog and picker
 export { isOpenRouterUrl, fetchOpenRouterModels, type OpenRouterModel } from './openrouter-catalog';

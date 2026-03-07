@@ -45,6 +45,7 @@ interface CreateMetadata {
   context_mode?: 'isolated' | 'shared';
   context_group?: string;
   continuity_mode?: 'standard' | 'deeper';
+  bare?: boolean;
 }
 
 export class ProfileRegistry {
@@ -173,6 +174,7 @@ export class ProfileRegistry {
       context_mode: metadata.context_mode,
       context_group: metadata.context_group,
       continuity_mode: metadata.continuity_mode,
+      bare: metadata.bare,
     });
 
     // Note: No longer auto-set as default
@@ -321,6 +323,7 @@ export class ProfileRegistry {
       context_mode: metadata.context_mode,
       context_group: metadata.context_group,
       continuity_mode: metadata.continuity_mode,
+      bare: metadata.bare,
     });
     saveUnifiedConfig(config);
   }
@@ -449,6 +452,7 @@ export class ProfileRegistry {
         context_mode: account.context_mode,
         context_group: account.context_group,
         continuity_mode: account.continuity_mode,
+        bare: account.bare,
       };
     }
 

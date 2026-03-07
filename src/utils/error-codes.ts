@@ -1,6 +1,6 @@
 /**
  * CCS Error Codes
- * Documentation: ../../docs/errors/README.md
+ * Documentation: https://docs.ccs.kaitran.ca/reference/error-codes
  */
 
 export const ERROR_CODES = {
@@ -9,7 +9,7 @@ export const ERROR_CODES = {
   CONFIG_INVALID_JSON: 'E102',
   CONFIG_INVALID_PROFILE: 'E103',
 
-  // Profile Management Errors (E200-E299)
+  // Profile Management Errors (E104-E107)
   PROFILE_NOT_FOUND: 'E104',
   PROFILE_ALREADY_EXISTS: 'E105',
   PROFILE_CANNOT_DELETE_DEFAULT: 'E106',
@@ -39,20 +39,30 @@ export const ERROR_CODES = {
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
+const ERROR_CODE_DOCS_BASE_URL = 'https://docs.ccs.kaitran.ca/reference/error-codes';
+
 /**
  * Error code documentation URL generator
  */
 export function getErrorDocUrl(errorCode: ErrorCode): string {
-  return `https://github.com/kaitranntt/ccs/blob/main/docs/errors/README.md#${errorCode.toLowerCase()}`;
+  return `${ERROR_CODE_DOCS_BASE_URL}#${errorCode.toLowerCase()}`;
 }
 
 /**
  * Get error category from code
  */
 export function getErrorCategory(errorCode: ErrorCode): string {
-  const code = parseInt(errorCode.substring(1));
+  if (
+    errorCode === ERROR_CODES.PROFILE_NOT_FOUND ||
+    errorCode === ERROR_CODES.PROFILE_ALREADY_EXISTS ||
+    errorCode === ERROR_CODES.PROFILE_CANNOT_DELETE_DEFAULT ||
+    errorCode === ERROR_CODES.PROFILE_INVALID_NAME
+  ) {
+    return 'Profile Management';
+  }
+
+  const code = parseInt(errorCode.substring(1), 10);
   if (code >= 100 && code < 200) return 'Configuration';
-  if (code >= 200 && code < 300) return 'Profile Management';
   if (code >= 300 && code < 400) return 'Claude CLI Detection';
   if (code >= 400 && code < 500) return 'Network/API';
   if (code >= 500 && code < 600) return 'File System';

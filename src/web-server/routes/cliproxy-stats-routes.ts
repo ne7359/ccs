@@ -34,11 +34,7 @@ import {
 } from '../../cliproxy/config-generator';
 import { getProxyStatus as getProxyProcessStatus, stopProxy } from '../../cliproxy/session-tracker';
 import { ensureCliproxyService } from '../../cliproxy/service-manager';
-import {
-  checkCliproxyUpdate,
-  getInstalledCliproxyVersion,
-  installCliproxyVersion,
-} from '../../cliproxy/binary-manager';
+import { checkCliproxyUpdate, getInstalledCliproxyVersion } from '../../cliproxy/binary-manager';
 import {
   fetchAllVersions,
   isNewerVersion,
@@ -56,6 +52,7 @@ import {
   canonicalizeModelIdForProvider,
   getDeniedModelIdReasonForProvider,
 } from '../../cliproxy/model-id-normalizer';
+import { installDashboardCliproxyVersion } from '../services/cliproxy-dashboard-install-service';
 
 const router = Router();
 
@@ -103,14 +100,26 @@ function isQuotaRouteRateLimited(req: Request, provider: string): boolean {
  * Cache only stable failures; skip transient network errors (timeouts, 429s, 5xx).
  * Generic across all quota result types.
  */
-function shouldCacheQuotaResult(result: {
+export function shouldCacheQuotaResult(result: {
   success: boolean;
   needsReauth?: boolean;
   isForbidden?: boolean;
+  httpStatus?: number;
+  retryable?: boolean;
   error?: string;
 }): boolean {
   if (result.success) return true;
   if (result.needsReauth || result.isForbidden) return true;
+  if (result.retryable === true) return false;
+  if (result.retryable === false) return true;
+  if (typeof result.httpStatus === 'number') {
+    if (result.httpStatus === 429 || result.httpStatus === 408 || result.httpStatus >= 500) {
+      return false;
+    }
+    if (result.httpStatus >= 400 && result.httpStatus < 500) {
+      return true;
+    }
+  }
   const msg = (result.error || '').toLowerCase();
   if (!msg) return false;
   const transientPatterns = ['timeout', 'rate limited', 'api error: 5', 'fetch failed'];
@@ -928,7 +937,7 @@ router.get('/versions', async (_req: Request, res: Response): Promise<void> => {
 /**
  * POST /api/cliproxy/install - Install specific CLIProxyAPI version
  * Body: { version: string, force?: boolean }
- * Returns: { success, requiresConfirmation?, message? }
+ * Returns: { success, restarted?, port?, requiresConfirmation?, message? }
  */
 router.post('/install', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -952,6 +961,8 @@ router.post('/install', async (req: Request, res: Response): Promise<void> => {
     if (isFaulty && !force) {
       res.json({
         success: false,
+        isFaulty,
+        isExperimental,
         requiresConfirmation: true,
         message: `Version ${version} has known bugs (v${CLIPROXY_FAULTY_RANGE.min.replace(/-\d+$/, '')}-${CLIPROXY_FAULTY_RANGE.max.replace(/-\d+$/, '')}). Set force=true to proceed.`,
       });
@@ -961,28 +972,22 @@ router.post('/install', async (req: Request, res: Response): Promise<void> => {
     if (isExperimental && !force) {
       res.json({
         success: false,
+        isFaulty,
+        isExperimental,
         requiresConfirmation: true,
         message: `Version ${version} is experimental (above stable ${CLIPROXY_MAX_STABLE_VERSION.replace(/-\d+$/, '')}). Set force=true to proceed.`,
       });
       return;
     }
 
-    // Stop proxy first if running
-    await stopProxy();
-
-    // Small delay to ensure port is released
-    await new Promise((r) => setTimeout(r, 500));
-
-    // Install the version
     const backend = getConfiguredBackend();
-    await installCliproxyVersion(version, true, backend);
+    const installResult = await installDashboardCliproxyVersion(version, backend);
 
     res.json({
-      success: true,
       version,
       isFaulty,
       isExperimental,
-      message: `Successfully installed CLIProxy Plus v${version}`,
+      ...installResult,
     });
   } catch (error) {
     console.error(`[cliproxy-stats] ${(error as Error).message}`);

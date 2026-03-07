@@ -12,6 +12,7 @@ import {
   getCodexWindowDisplayLabel,
   getMinGeminiQuota,
   getGeminiResetTime,
+  getQuotaFailureInfo,
   getProviderMinQuota,
   getProviderResetTime,
   isAgyQuotaResult,
@@ -1721,6 +1722,105 @@ describe('getProviderResetTime', () => {
     it('returns null for empty provider name', () => {
       const quota: QuotaResult = { success: true, models: [], lastUpdated: Date.now() };
       expect(getProviderResetTime('', quota)).toBeNull();
+    });
+  });
+});
+
+describe('getQuotaFailureInfo', () => {
+  it('maps reauth failures to a clear reauth badge and technical detail', () => {
+    const quota: CodexQuotaResult = {
+      success: false,
+      windows: [],
+      planType: null,
+      lastUpdated: Date.now(),
+      error: 'Codex token expired or invalid',
+      needsReauth: true,
+      httpStatus: 401,
+      errorCode: 'reauth_required',
+      errorDetail: '{"detail":"session expired"}',
+    };
+
+    expect(getQuotaFailureInfo(quota)).toEqual({
+      label: 'Reauth',
+      summary: 'Codex token expired or invalid',
+      actionHint: 'Refresh this account by running its auth flow again.',
+      technicalDetail: 'HTTP 401 | reauth_required',
+      rawDetail: '{"detail":"session expired"}',
+      tone: 'warning',
+    });
+  });
+
+  it('maps 402 workspace failures to a workspace badge and actionable hint', () => {
+    const quota: CodexQuotaResult = {
+      success: false,
+      windows: [],
+      planType: null,
+      lastUpdated: Date.now(),
+      error: 'Workspace deactivated (HTTP 402)',
+      httpStatus: 402,
+      errorCode: 'deactivated_workspace',
+      errorDetail: '{"detail":{"code":"deactivated_workspace"}}',
+    };
+
+    expect(getQuotaFailureInfo(quota)).toEqual({
+      label: 'Workspace',
+      summary: 'Workspace deactivated (HTTP 402)',
+      actionHint: 'Move this account back to an active workspace, then remove and re-add it.',
+      technicalDetail: 'HTTP 402 | deactivated_workspace',
+      rawDetail: '{"detail":{"code":"deactivated_workspace"}}',
+      tone: 'warning',
+    });
+  });
+
+  it('maps retryable network failures to a temporary badge', () => {
+    const quota: GeminiCliQuotaResult = {
+      success: false,
+      buckets: [],
+      projectId: null,
+      lastUpdated: Date.now(),
+      error: 'Network timeout while fetching quota',
+      errorCode: 'network_timeout',
+      retryable: true,
+      errorDetail: 'ETIMEDOUT',
+    };
+
+    expect(getQuotaFailureInfo(quota)).toEqual({
+      label: 'Temporary',
+      summary: 'Network timeout while fetching quota',
+      actionHint: 'Retry later. This looks temporary.',
+      technicalDetail: 'network_timeout',
+      rawDetail: 'ETIMEDOUT',
+      tone: 'warning',
+    });
+  });
+
+  it('returns null when quota fetch succeeded', () => {
+    const quota: QuotaResult = {
+      success: true,
+      models: [],
+      lastUpdated: Date.now(),
+    };
+
+    expect(getQuotaFailureInfo(quota)).toBeNull();
+  });
+
+  it('suppresses raw detail when it only duplicates the summary', () => {
+    const quota: CodexQuotaResult = {
+      success: false,
+      windows: [],
+      planType: null,
+      lastUpdated: Date.now(),
+      error: 'Quota fetch failed',
+      errorDetail: 'Quota fetch failed',
+    };
+
+    expect(getQuotaFailureInfo(quota)).toEqual({
+      label: 'Temporary',
+      summary: 'Quota fetch failed',
+      actionHint: 'Retry later. This looks temporary.',
+      technicalDetail: null,
+      rawDetail: null,
+      tone: 'warning',
     });
   });
 });

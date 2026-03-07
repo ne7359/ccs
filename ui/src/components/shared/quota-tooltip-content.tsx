@@ -9,6 +9,7 @@ import {
   formatQuotaPercent,
   formatResetTime,
   getCodexQuotaBreakdown,
+  getQuotaFailureInfo,
   getCodexWindowDisplayLabel,
   getModelsWithTiers,
   groupModelsByTier,
@@ -67,7 +68,28 @@ export function QuotaTooltipContent({ quota, resetTime }: QuotaTooltipContentPro
   }
 
   if (!quota.success) {
-    return <p className="text-xs text-destructive">{quota.error || 'Failed to load quota'}</p>;
+    const failureInfo = getQuotaFailureInfo(quota);
+    return (
+      <div className="text-xs space-y-1">
+        <p className="font-medium text-destructive">
+          {failureInfo?.label || quota.error || 'Failed to load quota'}
+        </p>
+        <p className="text-destructive/90">{failureInfo?.summary || quota.error}</p>
+        {failureInfo?.actionHint && (
+          <p className="text-muted-foreground">{failureInfo.actionHint}</p>
+        )}
+        {failureInfo?.technicalDetail && (
+          <p className="font-mono text-[11px] text-muted-foreground">
+            {failureInfo.technicalDetail}
+          </p>
+        )}
+        {failureInfo?.rawDetail && (
+          <pre className="whitespace-pre-wrap break-all rounded bg-muted/40 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+            {failureInfo.rawDetail}
+          </pre>
+        )}
+      </div>
+    );
   }
 
   // Antigravity (agy) provider tooltip

@@ -4,7 +4,7 @@
  * Handle sync command for CCS.
  */
 
-import { initUI, header, ok } from '../utils/ui';
+import { initUI, header, ok, info } from '../utils/ui';
 
 /**
  * Handle sync command
@@ -40,6 +40,35 @@ export async function handleSyncCommand(): Promise<void> {
   const sharedManager = new SharedManager();
   sharedManager.ensureSharedDirectories();
   console.log(ok('Shared symlinks verified'));
+
+  // Sync MCP servers from global ~/.claude.json to all non-bare instances
+  const { InstanceManager } = await import('../management/instance-manager');
+  const instanceMgr = new InstanceManager();
+  const ProfileRegistry = (await import('../auth/profile-registry')).default;
+  const registry = new ProfileRegistry();
+  const allProfiles = registry.getAllProfilesMerged();
+  let mcpSynced = 0;
+
+  for (const [name, profile] of Object.entries(allProfiles)) {
+    if (profile.bare) {
+      continue; // Skip bare profiles
+    }
+
+    if (!instanceMgr.hasInstance(name)) {
+      continue;
+    }
+
+    const instancePath = instanceMgr.getInstancePath(name);
+    if (instanceMgr.syncMcpServers(instancePath)) {
+      mcpSynced++;
+    }
+  }
+
+  if (mcpSynced > 0) {
+    console.log(ok(`MCP servers synced to ${mcpSynced} instance(s)`));
+  } else {
+    console.log(info('No instances to sync MCP servers'));
+  }
 
   console.log('');
   console.log(ok('Sync complete!'));

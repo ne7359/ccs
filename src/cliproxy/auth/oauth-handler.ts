@@ -37,13 +37,20 @@ import {
   getOAuthConfig,
   ProviderOAuthConfig,
   CLIPROXY_CALLBACK_PROVIDER_MAP,
+  getPasteCallbackStartPath,
+  getManagementOAuthCallbackPath,
   normalizeKiroAuthMethod,
 } from './auth-types';
 import { isHeadlessEnvironment, killProcessOnPort, showStep } from './environment-detector';
 import { getProviderTokenDir, isAuthenticated, registerAccountFromToken } from './token-manager';
 import { executeOAuthProcess } from './oauth-process';
 import { importKiroToken } from './kiro-import';
-import { getProxyTarget, buildProxyUrl, buildManagementHeaders } from '../proxy-target-resolver';
+import {
+  getProxyTarget,
+  buildProxyUrl,
+  buildManagementHeaders,
+  type ProxyTarget,
+} from '../proxy-target-resolver';
 import {
   checkNewAccountConflict,
   warnNewAccountConflict,
@@ -51,6 +58,86 @@ import {
   warnPossible403Ban,
 } from '../account-safety';
 import { ensureCliAntigravityResponsibility } from '../antigravity-responsibility';
+
+interface PasteCallbackStartData {
+  url?: string;
+  auth_url?: string;
+  state?: string;
+  status?: string;
+}
+
+const PASTE_CALLBACK_AUTH_URL_POLL_INTERVAL_MS = 3000;
+
+export async function requestPasteCallbackStart(
+  provider: CLIProxyProvider,
+  target: ProxyTarget
+): Promise<PasteCallbackStartData> {
+  const startPath = getPasteCallbackStartPath(provider);
+  const response = await fetch(buildProxyUrl(target, startPath), {
+    ...(provider === 'kiro' ? { method: 'POST' } : {}),
+    headers:
+      provider === 'kiro'
+        ? buildManagementHeaders(target, { 'Content-Type': 'application/json' })
+        : buildManagementHeaders(target),
+  });
+
+  if (!response.ok) {
+    throw new Error(`OAuth start failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as PasteCallbackStartData;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function resolvePasteCallbackAuthUrl(
+  target: ProxyTarget,
+  startData: PasteCallbackStartData,
+  timeoutMs: number,
+  pollIntervalMs: number = PASTE_CALLBACK_AUTH_URL_POLL_INTERVAL_MS
+): Promise<string | null> {
+  const authUrl = startData.url || startData.auth_url;
+  if (authUrl) {
+    return authUrl;
+  }
+
+  const state = startData.state;
+  if (!state) {
+    return null;
+  }
+
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const response = await fetch(
+      buildProxyUrl(target, `/v0/management/get-auth-status?state=${encodeURIComponent(state)}`),
+      { headers: buildManagementHeaders(target) }
+    );
+
+    if (response.ok) {
+      const statusData = (await response.json()) as PasteCallbackStartData;
+      const polledAuthUrl = statusData.url || statusData.auth_url;
+
+      if (polledAuthUrl) {
+        return polledAuthUrl;
+      }
+
+      if (statusData.status === 'error' || statusData.status === 'device_code') {
+        return null;
+      }
+    }
+
+    if (Date.now() + pollIntervalMs >= deadline) {
+      break;
+    }
+
+    await sleep(pollIntervalMs);
+  }
+
+  return null;
+}
 
 /**
  * Prompt user to add another account
@@ -274,28 +361,20 @@ async function handlePasteCallbackMode(
   console.log(info(`Starting ${oauthConfig.displayName} OAuth (paste-callback mode)...`));
 
   try {
-    // Request auth URL from CLIProxyAPI
-    // Note: Uses /oauth/${provider}/start endpoint (different from web-server routes which use
-    // /v0/management/${provider}-auth-url). Both start OAuth flows but this endpoint is simpler
-    // for CLI paste-callback mode as it directly returns the auth URL without is_webui param.
-    const startResponse = await fetch(buildProxyUrl(target, `/oauth/${provider}/start`), {
-      method: 'POST',
-      headers: buildManagementHeaders(target, { 'Content-Type': 'application/json' }),
-    });
-
-    if (!startResponse.ok) {
-      const startError = `OAuth start failed with status ${startResponse.status}`;
+    // Request auth URL from CLIProxyAPI.
+    // Kiro keeps its legacy start route because CLI auth methods do not share the generic
+    // management auth-url contract used by providers like Claude.
+    let startData: PasteCallbackStartData;
+    try {
+      startData = await requestPasteCallbackStart(provider, target);
+    } catch (error) {
+      const startError = (error as Error).message;
       console.log(fail('Failed to start OAuth flow'));
       warnPossible403Ban(provider, startError);
       return null;
     }
 
-    const startData = (await startResponse.json()) as {
-      url?: string;
-      auth_url?: string;
-      status?: string;
-    };
-    const authUrl = startData.url || startData.auth_url;
+    const authUrl = await resolvePasteCallbackAuthUrl(target, startData, OAUTH_STATE_TIMEOUT_MS);
 
     if (!authUrl) {
       console.log(fail('No authorization URL received'));
@@ -372,8 +451,7 @@ async function handlePasteCallbackMode(
 
     const callbackProvider = CLIPROXY_CALLBACK_PROVIDER_MAP[provider] || provider;
 
-    // Note: /oauth-callback is a CLIProxyAPI endpoint (not /v0/management prefix)
-    const callbackResponse = await fetch(buildProxyUrl(target, '/oauth-callback'), {
+    const callbackResponse = await fetch(buildProxyUrl(target, getManagementOAuthCallbackPath()), {
       method: 'POST',
       headers: buildManagementHeaders(target, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({

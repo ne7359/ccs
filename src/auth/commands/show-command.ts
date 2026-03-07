@@ -63,6 +63,7 @@ export async function handleShow(ctx: CommandContext, args: string[]): Promise<v
         continuity_mode: contextPolicy.mode === 'shared' ? contextPolicy.continuityMode : null,
         instance_path: instancePath,
         session_count: sessionCount,
+        ...(profile.bare ? { bare: true } : {}),
       };
       console.log(JSON.stringify(output, null, 2));
       return;
@@ -80,6 +81,7 @@ export async function handleShow(ctx: CommandContext, args: string[]): Promise<v
       ['Created', new Date(profile.created).toLocaleString()],
       ['Last Used', profile.last_used ? new Date(profile.last_used).toLocaleString() : 'Never'],
       ['Context', formatAccountContextPolicy(contextPolicy)],
+      ...(profile.bare ? [['Bare', 'yes (no shared symlinks)']] : []),
       ['Sessions', `${sessionCount}`],
     ];
 

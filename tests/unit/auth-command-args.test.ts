@@ -47,6 +47,22 @@ describe('auth command args parsing', () => {
     expect(parsed.deeperContinuity).toBe(true);
   });
 
+  it('parses bare flag for create command', () => {
+    const parsed = parseArgs(['work', '--bare']);
+
+    expect(parsed.profileName).toBe('work');
+    expect(parsed.bare).toBe(true);
+  });
+
+  it('parses bare flag with shared context flags', () => {
+    const parsed = parseArgs(['work', '--bare', '--share-context', '--context-group', 'sprint-a']);
+
+    expect(parsed.profileName).toBe('work');
+    expect(parsed.bare).toBe(true);
+    expect(parsed.shareContext).toBe(true);
+    expect(parsed.contextGroup).toBe('sprint-a');
+  });
+
   it('tracks unknown flags and keeps positional profile intact', () => {
     const parsed = parseArgs(['--foo', 'bar', 'work']);
 

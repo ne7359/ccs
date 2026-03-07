@@ -18,7 +18,7 @@ import type { Profile } from '@/lib/api-client';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const optionalUrlSchema = z
   .string()
   .refine((value) => value.trim().length === 0 || z.string().url().safeParse(value).success, {

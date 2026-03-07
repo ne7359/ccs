@@ -56,3 +56,76 @@ export interface UpdateApiProfileTargetResult {
   target?: TargetType;
   error?: string;
 }
+
+/** Validation severity for profile lifecycle checks */
+export type ProfileValidationLevel = 'error' | 'warning';
+
+/** Field-level validation issue emitted by lifecycle operations */
+export interface ProfileValidationIssue {
+  level: ProfileValidationLevel;
+  code: string;
+  message: string;
+  field?: string;
+  hint?: string;
+}
+
+/** Validation summary for settings payload */
+export interface ProfileValidationSummary {
+  valid: boolean;
+  issues: ProfileValidationIssue[];
+}
+
+/** Orphan settings file candidate discovered on disk */
+export interface ApiProfileOrphanCandidate {
+  name: string;
+  settingsPath: string;
+  validation: ProfileValidationSummary;
+}
+
+/** Discovery result for orphan settings files */
+export interface DiscoverApiProfileOrphansResult {
+  orphans: ApiProfileOrphanCandidate[];
+}
+
+/** Registration result for orphan settings files */
+export interface RegisterApiProfileOrphansResult {
+  registered: string[];
+  skipped: Array<{ name: string; reason: string }>;
+}
+
+/** Copy result for API profile duplication */
+export interface CopyApiProfileResult {
+  success: boolean;
+  name?: string;
+  settingsPath?: string;
+  warnings?: string[];
+  error?: string;
+}
+
+/** Portable export bundle schema */
+export interface ApiProfileExportBundle {
+  schemaVersion: 1;
+  exportedAt: string;
+  profile: {
+    name: string;
+    target: TargetType;
+  };
+  settings: Record<string, unknown>;
+}
+
+/** Export operation result */
+export interface ExportApiProfileResult {
+  success: boolean;
+  bundle?: ApiProfileExportBundle;
+  redacted?: boolean;
+  error?: string;
+}
+
+/** Import operation result */
+export interface ImportApiProfileResult {
+  success: boolean;
+  name?: string;
+  warnings?: string[];
+  validation?: ProfileValidationSummary;
+  error?: string;
+}

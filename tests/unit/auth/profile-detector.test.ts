@@ -161,7 +161,7 @@ describe('ProfileDetector', () => {
       const mockUnifiedConfig = {
         version: 2,
         accounts: {
-          work: { created: '2025-01-01', last_used: '2025-01-02' },
+          work: { created: '2025-01-01', last_used: '2025-01-02', bare: true },
         },
       };
 
@@ -176,6 +176,7 @@ describe('ProfileDetector', () => {
         expect(result.name).toBe('work');
         expect(result.profile).toBeDefined();
         expect((result.profile as any).type).toBe('account');
+        expect((result.profile as any).bare).toBe(true);
       } finally {
         isUnifiedModeSpy.mockRestore();
         loadUnifiedConfigSpy.mockRestore();

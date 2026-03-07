@@ -54,6 +54,12 @@ export interface CopilotConfig {
 /** GitHub Copilot plan tiers */
 export type CopilotPlanTier = 'free' | 'pro' | 'pro+' | 'business' | 'enterprise';
 
+export interface CopilotModelLimits {
+  maxContextWindowTokens?: number;
+  maxOutputTokens?: number;
+  maxPromptTokens?: number;
+}
+
 export interface CopilotModel {
   id: string;
   name: string;
@@ -66,6 +72,8 @@ export interface CopilotModel {
   multiplier?: number;
   /** Whether this model is in preview */
   preview?: boolean;
+  /** Live model limits returned by GitHub Copilot metadata, when available */
+  limits?: CopilotModelLimits;
 }
 
 export interface CopilotRawSettings {

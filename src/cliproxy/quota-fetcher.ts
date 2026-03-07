@@ -17,6 +17,7 @@ import {
   type AccountTier,
 } from './account-manager';
 import { sanitizeEmail, isTokenExpired } from './auth-utils';
+import { buildManagementHeaders, buildProxyUrl, getProxyTarget } from './proxy-target-resolver';
 
 /** Individual model quota info */
 export interface ModelQuota {
@@ -38,12 +39,24 @@ export interface QuotaResult {
   models: ModelQuota[];
   /** Timestamp of fetch */
   lastUpdated: number;
+  /** Upstream HTTP status when available */
+  httpStatus?: number;
+  /** Stable machine-readable error code */
+  errorCode?: string;
+  /** Additional provider-specific detail/code from upstream */
+  errorDetail?: string;
   /** True if account lacks quota access (403) */
   isForbidden?: boolean;
   /** Error message if fetch failed */
   error?: string;
+  /** Provider-specific remediation guidance */
+  actionHint?: string;
+  /** True when the failure is temporary and retrying later may help */
+  retryable?: boolean;
   /** True if token is expired and needs re-auth */
   isExpired?: boolean;
+  /** True if token refresh cannot proceed and the account should be re-authenticated */
+  needsReauth?: boolean;
   /** ISO timestamp when token expires/expired */
   expiresAt?: string;
   /** True if account hasn't been activated in official Antigravity app */
@@ -59,14 +72,7 @@ export interface QuotaResult {
 /** Google Cloud Code API endpoints */
 const ANTIGRAVITY_API_BASE = 'https://cloudcode-pa.googleapis.com';
 const ANTIGRAVITY_API_VERSION = 'v1internal';
-
-/** Google OAuth token endpoint */
-const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-
-/** Antigravity OAuth credentials (from CLIProxyAPIPlus - public in open-source code) */
-const ANTIGRAVITY_CLIENT_ID =
-  '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
-const ANTIGRAVITY_CLIENT_SECRET = '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';
+const MANAGEMENT_API_TIMEOUT_MS = 5000;
 
 /** Headers for loadCodeAssist (matches CLIProxyAPI antigravity.go) */
 const LOADCODEASSIST_HEADERS = {
@@ -102,15 +108,6 @@ interface AuthData {
   projectId: string | null;
   isExpired: boolean;
   expiresAt: string | null;
-}
-
-/** Token refresh response */
-interface TokenRefreshResponse {
-  access_token?: string;
-  expires_in?: number;
-  token_type?: string;
-  error?: string;
-  error_description?: string;
 }
 
 /** Tier info from loadCodeAssist */
@@ -155,66 +152,301 @@ interface FetchAvailableModelsResponse {
   models?: Record<string, AvailableModel>;
 }
 
-/**
- * Refresh access token using refresh_token via Google OAuth
- * This allows CCS to get fresh tokens independently of CLIProxyAPI
- */
-async function refreshAccessToken(
-  refreshToken: string,
-  verbose = false
-): Promise<{ accessToken: string | null; error?: string }> {
-  if (verbose) console.error('[i] Refreshing access token...');
+interface ManagementAuthFile {
+  auth_index?: string | number;
+  provider?: string;
+  type?: string;
+  email?: string;
+  name?: string;
+}
 
+interface ManagementApiCallResponse {
+  status_code?: number;
+  body?: string;
+}
+
+interface ManagedResponse {
+  status: number;
+  bodyText: string;
+  json: unknown;
+  viaManagement: boolean;
+}
+
+interface ProjectLookupResult {
+  projectId: string | null;
+  tier?: AccountTier;
+  error?: string;
+  errorCode?: string;
+  errorDetail?: string;
+  actionHint?: string;
+  retryable?: boolean;
+  httpStatus?: number;
+  needsReauth?: boolean;
+  isUnprovisioned?: boolean;
+}
+
+function safeParseJson(bodyText: string): unknown {
+  try {
+    return JSON.parse(bodyText);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeErrorDetail(bodyText: string): string | undefined {
+  const normalized = bodyText.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.length <= 400) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 397)}...`;
+}
+
+function buildAntigravityFailure(
+  status: number | undefined,
+  bodyText?: string
+): Pick<
+  QuotaResult,
+  'error' | 'errorCode' | 'errorDetail' | 'actionHint' | 'retryable' | 'httpStatus' | 'needsReauth'
+> & { isForbidden?: boolean } {
+  const detail = normalizeErrorDetail(bodyText || '');
+
+  if (status === 401) {
+    return {
+      httpStatus: 401,
+      error: 'Token expired or invalid',
+      errorCode: 'reauth_required',
+      actionHint:
+        'Re-authenticate this account. If CLIProxy is running, retry after the proxy finishes refreshing the token.',
+      needsReauth: true,
+      errorDetail: detail,
+    };
+  }
+
+  if (status === 403) {
+    return {
+      httpStatus: 403,
+      error: 'Access forbidden',
+      errorCode: 'quota_api_forbidden',
+      actionHint: 'This account does not have Gemini Code Assist quota access.',
+      isForbidden: true,
+      errorDetail: detail,
+    };
+  }
+
+  if (status === 429) {
+    return {
+      httpStatus: 429,
+      error: 'Rate limited - try again later',
+      errorCode: 'rate_limited',
+      actionHint: 'Retry later. This looks temporary.',
+      retryable: true,
+      errorDetail: detail,
+    };
+  }
+
+  if (status === 408) {
+    return {
+      httpStatus: 408,
+      error: 'Request timeout',
+      errorCode: 'network_timeout',
+      actionHint: 'Retry later. This looks temporary.',
+      retryable: true,
+      errorDetail: detail,
+    };
+  }
+
+  if (typeof status === 'number' && status >= 500) {
+    return {
+      httpStatus: status,
+      error: `API error: ${status}`,
+      errorCode: 'provider_unavailable',
+      actionHint: 'Retry later. The provider appears unavailable.',
+      retryable: true,
+      errorDetail: detail,
+    };
+  }
+
+  if (typeof status === 'number' && status >= 400) {
+    return {
+      httpStatus: status,
+      error: `API error: ${status}`,
+      errorCode: 'quota_request_failed',
+      errorDetail: detail,
+    };
+  }
+
+  return {
+    error: 'Quota request failed',
+    errorCode: 'quota_request_failed',
+    errorDetail: detail,
+  };
+}
+
+async function readManagedResponse(
+  response: Response,
+  viaManagement: boolean
+): Promise<ManagedResponse> {
+  const bodyText = await response.text();
+  return {
+    status: response.status,
+    bodyText,
+    json: safeParseJson(bodyText),
+    viaManagement,
+  };
+}
+
+function isAntigravityAuthFileForAccount(file: ManagementAuthFile, accountId: string): boolean {
+  const provider = (file.provider || file.type || '').trim().toLowerCase();
+  if (provider !== 'antigravity' && provider !== 'agy') {
+    return false;
+  }
+
+  const normalizedAccount = accountId.trim().toLowerCase();
+  const normalizedEmail = file.email?.trim().toLowerCase();
+  if (normalizedEmail && normalizedEmail === normalizedAccount) {
+    return true;
+  }
+
+  const normalizedName = file.name?.trim().toLowerCase();
+  if (!normalizedName) {
+    return false;
+  }
+
+  const sanitizedAccount = sanitizeEmail(accountId).toLowerCase();
+  return (
+    normalizedName === `antigravity-${sanitizedAccount}.json` ||
+    normalizedName === `agy-${sanitizedAccount}.json`
+  );
+}
+
+async function findManagedAntigravityAuthIndex(accountId: string): Promise<string | number | null> {
+  const target = getProxyTarget();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const timeoutId = setTimeout(() => controller.abort(), MANAGEMENT_API_TIMEOUT_MS);
 
   try {
-    const response = await fetch(GOOGLE_TOKEN_URL, {
+    const response = await fetch(buildProxyUrl(target, '/v0/management/auth-files'), {
+      signal: controller.signal,
+      headers: buildManagementHeaders(target),
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = (await response.json()) as { files?: ManagementAuthFile[] };
+    const match = data.files?.find((file) => isAntigravityAuthFileForAccount(file, accountId));
+    return match?.auth_index ?? null;
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
+
+async function performManagedAntigravityRequest(
+  accountId: string,
+  url: string,
+  headers: Record<string, string>,
+  body: string
+): Promise<ManagedResponse | null> {
+  const authIndex = await findManagedAntigravityAuthIndex(accountId);
+  if (authIndex === null || authIndex === undefined) {
+    return null;
+  }
+
+  const target = getProxyTarget();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), MANAGEMENT_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(buildProxyUrl(target, '/v0/management/api-call'), {
+      method: 'POST',
+      signal: controller.signal,
+      headers: buildManagementHeaders(target, {
+        'Content-Type': 'application/json',
+      }),
+      body: JSON.stringify({
+        auth_index: authIndex,
+        method: 'POST',
+        url,
+        header: {
+          ...headers,
+          Authorization: 'Bearer $TOKEN$',
+        },
+        data: body,
+      }),
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const apiResponse = (await response.json()) as ManagementApiCallResponse;
+    const bodyText = typeof apiResponse.body === 'string' ? apiResponse.body : '';
+    return {
+      status: typeof apiResponse.status_code === 'number' ? apiResponse.status_code : 500,
+      bodyText,
+      json: safeParseJson(bodyText),
+      viaManagement: true,
+    };
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
+
+async function performAntigravityRequest(
+  accountId: string,
+  accessToken: string,
+  url: string,
+  headers: Record<string, string>,
+  body: string
+): Promise<ManagedResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), MANAGEMENT_API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
       method: 'POST',
       signal: controller.signal,
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        ...headers,
+        Authorization: `Bearer ${accessToken}`,
       },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: ANTIGRAVITY_CLIENT_ID,
-        client_secret: ANTIGRAVITY_CLIENT_SECRET,
-      }).toString(),
+      body,
     });
-
     clearTimeout(timeoutId);
 
-    if (verbose) console.error(`[i] Token refresh status: ${response.status}`);
+    const directResult = await readManagedResponse(response, false);
+    if (directResult.status !== 401) {
+      return directResult;
+    }
 
-    const data = (await response.json()) as TokenRefreshResponse;
-
-    if (!response.ok || data.error) {
-      const error = data.error_description || data.error || `OAuth error: ${response.status}`;
-      if (verbose) console.error(`[!] Token refresh failed: ${error}`);
+    const managedResult = await performManagedAntigravityRequest(accountId, url, headers, body);
+    return managedResult ?? directResult;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === 'AbortError') {
       return {
-        accessToken: null,
-        error,
+        status: 408,
+        bodyText: '',
+        json: null,
+        viaManagement: false,
       };
     }
 
-    if (!data.access_token) {
-      if (verbose) console.error('[!] Token refresh failed: No access_token in response');
-      return { accessToken: null, error: 'No access_token in response' };
-    }
-
-    if (verbose) console.error('[i] Token refresh: success');
-    return { accessToken: data.access_token };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    const errorMsg =
-      err instanceof Error && err.name === 'AbortError'
-        ? 'Token refresh timeout'
-        : err instanceof Error
-          ? err.message
-          : 'Unknown error';
-    if (verbose) console.error(`[!] Token refresh failed: ${errorMsg}`);
-    return { accessToken: null, error: errorMsg };
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return {
+      status: 503,
+      bodyText: message,
+      json: null,
+      viaManagement: false,
+    };
   }
 }
 
@@ -305,80 +537,63 @@ function mapTierString(tierStr: string | undefined): AccountTier {
  * Get project ID and tier via loadCodeAssist endpoint
  * Uses paidTier.id for accurate tier detection (g1-ultra-tier, g1-pro-tier)
  */
-async function getProjectId(accessToken: string): Promise<{
-  projectId: string | null;
-  tier?: AccountTier;
-  error?: string;
-  isUnprovisioned?: boolean;
-}> {
+async function getProjectId(accountId: string, accessToken: string): Promise<ProjectLookupResult> {
   const url = `${ANTIGRAVITY_API_BASE}/${ANTIGRAVITY_API_VERSION}:loadCodeAssist`;
+  const body = JSON.stringify({
+    metadata: {
+      ideType: 'IDE_UNSPECIFIED',
+      platform: 'PLATFORM_UNSPECIFIED',
+      pluginType: 'GEMINI',
+    },
+  });
+  const response = await performAntigravityRequest(
+    accountId,
+    accessToken,
+    url,
+    LOADCODEASSIST_HEADERS,
+    body
+  );
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        ...LOADCODEASSIST_HEADERS,
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        metadata: {
-          ideType: 'IDE_UNSPECIFIED',
-          platform: 'PLATFORM_UNSPECIFIED',
-          pluginType: 'GEMINI',
-        },
-      }),
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      // Return specific error based on status
-      if (response.status === 401) {
-        return { projectId: null, error: 'Token expired or invalid' };
-      }
-      if (response.status === 403) {
-        return { projectId: null, error: 'Access forbidden' };
-      }
-      return { projectId: null, error: `API error: ${response.status}` };
-    }
-
-    const data = (await response.json()) as LoadCodeAssistResponse;
-
-    // Extract project ID from response
-    let projectId: string | undefined;
-    if (typeof data.cloudaicompanionProject === 'string') {
-      projectId = data.cloudaicompanionProject;
-    } else if (typeof data.cloudaicompanionProject === 'object') {
-      projectId = data.cloudaicompanionProject?.id;
-    }
-
-    if (!projectId?.trim()) {
-      // Account authenticated but not provisioned - user needs to sign in via Antigravity app
-      return {
-        projectId: null,
-        error: 'Sign in to Antigravity app to activate quota.',
-        isUnprovisioned: true,
-      };
-    }
-
-    // Extract tier - paidTier reflects actual subscription status, takes priority
-    // API returns: paidTier.id = "g1-ultra-tier" or "g1-pro-tier"
-    // allowedTiers/currentTier often return "standard-tier" which is not useful
-    const tierStr = data.paidTier?.id || data.currentTier?.id;
-    const tier = mapTierString(tierStr);
-
-    return { projectId: projectId.trim(), tier };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err instanceof Error && err.name === 'AbortError') {
-      return { projectId: null, error: 'Request timeout' };
-    }
-    return { projectId: null, error: err instanceof Error ? err.message : 'Unknown error' };
+  if (response.status < 200 || response.status >= 300) {
+    return {
+      projectId: null,
+      ...buildAntigravityFailure(response.status, response.bodyText),
+    };
   }
+
+  const data = response.json as LoadCodeAssistResponse | null;
+  if (!data) {
+    return {
+      projectId: null,
+      error: 'Invalid quota response from provider',
+      errorCode: 'provider_unavailable',
+      retryable: true,
+    };
+  }
+
+  // Extract project ID from response
+  let projectId: string | undefined;
+  if (typeof data.cloudaicompanionProject === 'string') {
+    projectId = data.cloudaicompanionProject;
+  } else if (typeof data.cloudaicompanionProject === 'object') {
+    projectId = data.cloudaicompanionProject?.id;
+  }
+
+  if (!projectId?.trim()) {
+    return {
+      projectId: null,
+      error: 'Sign in to Antigravity app to activate quota.',
+      errorCode: 'account_unprovisioned',
+      actionHint: 'Complete sign-in in the Antigravity app, then retry quota refresh.',
+      isUnprovisioned: true,
+    };
+  }
+
+  // Extract tier - paidTier reflects actual subscription status, takes priority
+  const tierStr = data.paidTier?.id || data.currentTier?.id;
+  const tier = mapTierString(tierStr);
+
+  return { projectId: projectId.trim(), tier };
 }
 
 /**
@@ -386,116 +601,75 @@ async function getProjectId(accessToken: string): Promise<{
  * Note: projectId is kept for potential future use but not sent in body
  * (CLIProxyAPI sends empty {} body for this endpoint)
  */
-async function fetchAvailableModels(accessToken: string, _projectId: string): Promise<QuotaResult> {
+async function fetchAvailableModels(
+  accountId: string,
+  accessToken: string,
+  _projectId: string
+): Promise<QuotaResult> {
   const url = `${ANTIGRAVITY_API_BASE}/${ANTIGRAVITY_API_VERSION}:fetchAvailableModels`;
+  const response = await performAntigravityRequest(
+    accountId,
+    accessToken,
+    url,
+    FETCHMODELS_HEADERS,
+    JSON.stringify({})
+  );
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-  try {
-    // Match CLIProxyAPI exactly: empty body, minimal headers
-    const response = await fetch(url, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        ...FETCHMODELS_HEADERS,
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({}),
-    });
-
-    clearTimeout(timeoutId);
-
-    if (response.status === 403) {
-      // 403 = account lacks Gemini Code Assist access (not same as quota exhausted)
-      // Keep success=false with isForbidden flag for UI to show distinct "403" badge
-      return {
-        success: false,
-        models: [],
-        lastUpdated: Date.now(),
-        isForbidden: true,
-        error: '403 Forbidden - No Gemini Code Assist access',
-      };
-    }
-
-    if (response.status === 401) {
-      return {
-        success: false,
-        models: [],
-        lastUpdated: Date.now(),
-        error: 'Access token expired or invalid',
-      };
-    }
-
-    if (response.status === 429) {
-      return {
-        success: false,
-        models: [],
-        lastUpdated: Date.now(),
-        error: 'Rate limited - try again later',
-      };
-    }
-
-    if (!response.ok) {
-      return {
-        success: false,
-        models: [],
-        lastUpdated: Date.now(),
-        error: `API error: ${response.status}`,
-      };
-    }
-
-    const data = (await response.json()) as FetchAvailableModelsResponse;
-    const models: ModelQuota[] = [];
-
-    if (data.models && typeof data.models === 'object') {
-      for (const [modelId, modelData] of Object.entries(data.models)) {
-        const quotaInfo = modelData.quotaInfo || modelData.quota_info;
-        if (!quotaInfo) continue;
-
-        // Extract remaining fraction (0-1 range)
-        const remaining =
-          quotaInfo.remainingFraction ?? quotaInfo.remaining_fraction ?? quotaInfo.remaining;
-
-        // Extract reset time
-        const resetTime = quotaInfo.resetTime || quotaInfo.reset_time || null;
-
-        // If remaining is not a valid number but resetTime exists, treat as exhausted (0%)
-        // This happens when Claude models hit quota limit - API returns resetTime but no fraction
-        let percentage: number;
-        if (typeof remaining === 'number' && isFinite(remaining)) {
-          percentage = Math.max(0, Math.min(100, Math.round(remaining * 100)));
-        } else if (resetTime) {
-          // Model is exhausted but has reset time - show as 0%
-          percentage = 0;
-        } else {
-          // No valid data, skip this model
-          continue;
-        }
-
-        models.push({
-          name: modelId,
-          displayName: modelData.displayName,
-          percentage,
-          resetTime,
-        });
-      }
-    }
-
-    return {
-      success: true,
-      models,
-      lastUpdated: Date.now(),
-    };
-  } catch (err) {
-    clearTimeout(timeoutId);
+  if (response.status < 200 || response.status >= 300) {
     return {
       success: false,
       models: [],
       lastUpdated: Date.now(),
-      error: err instanceof Error ? err.message : 'Unknown error',
+      ...buildAntigravityFailure(response.status, response.bodyText),
     };
   }
+
+  const data = response.json as FetchAvailableModelsResponse | null;
+  if (!data) {
+    return {
+      success: false,
+      models: [],
+      lastUpdated: Date.now(),
+      error: 'Invalid quota response from provider',
+      errorCode: 'provider_unavailable',
+      retryable: true,
+    };
+  }
+
+  const models: ModelQuota[] = [];
+
+  if (data.models && typeof data.models === 'object') {
+    for (const [modelId, modelData] of Object.entries(data.models)) {
+      const quotaInfo = modelData.quotaInfo || modelData.quota_info;
+      if (!quotaInfo) continue;
+
+      const remaining =
+        quotaInfo.remainingFraction ?? quotaInfo.remaining_fraction ?? quotaInfo.remaining;
+      const resetTime = quotaInfo.resetTime || quotaInfo.reset_time || null;
+
+      let percentage: number;
+      if (typeof remaining === 'number' && isFinite(remaining)) {
+        percentage = Math.max(0, Math.min(100, Math.round(remaining * 100)));
+      } else if (resetTime) {
+        percentage = 0;
+      } else {
+        continue;
+      }
+
+      models.push({
+        name: modelId,
+        displayName: modelData.displayName,
+        percentage,
+        resetTime,
+      });
+    }
+  }
+
+  return {
+    success: true,
+    models,
+    lastUpdated: Date.now(),
+  };
 }
 
 /**
@@ -535,63 +709,47 @@ export async function fetchAccountQuota(
       models: [],
       lastUpdated: Date.now(),
       error,
+      errorCode: 'auth_file_missing',
+      actionHint: 'Reconnect this account so CCS can read a current auth token.',
     };
   }
 
-  // Determine which access token to use
-  // File-based token is often stale (CLIProxyAPIPlus refreshes at runtime but doesn't persist)
-  // Proactive refresh: refresh 5 minutes before expiry (matches CLIProxyAPIPlus behavior)
-  let accessToken = authData.accessToken;
-  const REFRESH_LEAD_TIME_MS = 5 * 60 * 1000; // 5 minutes
-  let tokenRefreshed = false;
-
-  if (authData.refreshToken) {
-    const shouldRefresh =
-      authData.isExpired || // Already expired
-      !authData.expiresAt || // No expiry info - refresh to be safe
-      new Date(authData.expiresAt).getTime() - Date.now() < REFRESH_LEAD_TIME_MS; // Expiring soon
-
-    if (shouldRefresh) {
-      const refreshResult = await refreshAccessToken(authData.refreshToken, verbose);
-      if (refreshResult.accessToken) {
-        accessToken = refreshResult.accessToken;
-        tokenRefreshed = true;
-      }
-      // If refresh fails, fall back to existing token (might still work)
-    }
-  }
-
-  if (verbose && !tokenRefreshed) {
-    console.error('[i] Token refresh: skipped');
+  const accessToken = authData.accessToken;
+  if (verbose) {
+    const expiryState = authData.isExpired
+      ? 'expired'
+      : authData.expiresAt
+        ? `expires ${authData.expiresAt}`
+        : 'expiry unknown';
+    console.error(`[i] Auth token state: ${expiryState}`);
   }
 
   // Get project ID and tier - prefer stored project ID, but always call API for tier
   let projectId = authData.projectId;
   let apiTier: AccountTier = 'unknown';
 
-  // Always call loadCodeAssist to get accurate tier from API
-  let lastProjectResult = await getProjectId(accessToken);
+  // Always call loadCodeAssist to get accurate tier from API.
+  // If the file token is stale, the helper retries through CLIProxy management auth.
+  const lastProjectResult = await getProjectId(accountId, accessToken);
 
   if (!lastProjectResult.projectId && !projectId) {
-    // If project ID fetch fails, it might be token issue - try refresh if we haven't
-    if (authData.refreshToken && accessToken === authData.accessToken) {
-      const refreshResult = await refreshAccessToken(authData.refreshToken, verbose);
-      if (refreshResult.accessToken) {
-        accessToken = refreshResult.accessToken;
-        lastProjectResult = await getProjectId(accessToken);
-      }
-    }
-    if (!lastProjectResult.projectId) {
-      const error = lastProjectResult.error || 'Failed to retrieve project ID';
-      if (verbose) console.error(`[!] Error: ${error}`);
-      return {
-        success: false,
-        models: [],
-        lastUpdated: Date.now(),
-        error,
-        isUnprovisioned: lastProjectResult.isUnprovisioned,
-      };
-    }
+    const error = lastProjectResult.error || 'Failed to retrieve project ID';
+    if (verbose) console.error(`[!] Error: ${error}`);
+    return {
+      success: false,
+      models: [],
+      lastUpdated: Date.now(),
+      error,
+      errorCode: lastProjectResult.errorCode,
+      errorDetail: lastProjectResult.errorDetail,
+      actionHint: lastProjectResult.actionHint,
+      retryable: lastProjectResult.retryable,
+      httpStatus: lastProjectResult.httpStatus,
+      needsReauth: lastProjectResult.needsReauth,
+      isUnprovisioned: lastProjectResult.isUnprovisioned,
+      isExpired: authData.isExpired,
+      expiresAt: authData.expiresAt || undefined,
+    };
   }
 
   // Use API project ID if available, else fallback to stored
@@ -601,42 +759,22 @@ export async function fetchAccountQuota(
   if (verbose) console.error(`[i] Project ID: ${projectId || 'not found'}`);
 
   // Fetch models with quota
-  const result = await fetchAvailableModels(accessToken, projectId as string);
+  const result = await fetchAvailableModels(accountId, accessToken, projectId as string);
 
   if (verbose) console.error(`[i] Models found: ${result.models.length}`);
-
-  // If quota fetch fails with auth error and we haven't refreshed yet, try refresh
-  if (!result.success && result.error?.includes('expired') && authData.refreshToken) {
-    const refreshResult = await refreshAccessToken(authData.refreshToken, verbose);
-    if (refreshResult.accessToken) {
-      const retryResult = await fetchAvailableModels(
-        refreshResult.accessToken,
-        projectId as string
-      );
-      // Determine tier from API response only (model inference is unreliable)
-      if (retryResult.success) {
-        const finalTier = apiTier !== 'unknown' ? apiTier : 'unknown';
-        retryResult.tier = finalTier;
-        retryResult.accountId = accountId;
-        if (finalTier !== 'unknown') {
-          setAccountTier(provider, accountId, finalTier);
-        }
-        if (verbose && retryResult.error) {
-          console.log(`[!] Error: ${retryResult.error}`);
-        }
-      }
-      return retryResult;
-    }
-  }
+  result.accountId = accountId;
+  result.projectId = projectId || undefined;
 
   // Determine tier from API response only
   if (result.success) {
     const finalTier = apiTier !== 'unknown' ? apiTier : 'unknown';
     result.tier = finalTier;
-    result.accountId = accountId;
     if (finalTier !== 'unknown') {
       setAccountTier(provider, accountId, finalTier);
     }
+  } else {
+    result.isExpired = authData.isExpired;
+    result.expiresAt = authData.expiresAt || undefined;
   }
 
   if (verbose && result.error) {

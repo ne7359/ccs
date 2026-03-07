@@ -146,7 +146,9 @@ export async function resolveProfileContinuityInheritance(
       isAccountContextMetadata(mappedProfile) ? mappedProfile : undefined
     );
     const instanceMgr = new InstanceManager();
-    const instancePath = await instanceMgr.ensureInstance(sourceAccount, contextPolicy);
+    const instancePath = await instanceMgr.ensureInstance(sourceAccount, contextPolicy, {
+      bare: mappedProfile.bare === true,
+    });
 
     return {
       sourceAccount,

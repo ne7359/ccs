@@ -9,7 +9,7 @@
  * - Email masking
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -18,18 +18,22 @@ import {
   writeQuotaWarning,
   maskEmail,
 } from '../../../src/cliproxy/account-safety';
+import { sanitizeEmail } from '../../../src/cliproxy/auth-utils';
 
 // Setup test isolation
 let tmpDir: string;
 let origCcsHome: string | undefined;
+let originalFetch: typeof fetch;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-test-exhaust-'));
   origCcsHome = process.env.CCS_HOME;
   process.env.CCS_HOME = tmpDir;
+  originalFetch = global.fetch;
 });
 
 afterEach(() => {
+  global.fetch = originalFetch;
   if (origCcsHome !== undefined) {
     process.env.CCS_HOME = origCcsHome;
   } else {
@@ -58,6 +62,25 @@ function writeConfig(quotaConfig: unknown): void {
       version: 2,
       quota_management: quotaConfig,
     })
+  );
+}
+
+function writeClaudeAuth(accountId: string, accessToken: string): void {
+  const authDir = path.join(tmpDir, '.ccs', 'cliproxy', 'auth');
+  const tokenFile = `claude-${sanitizeEmail(accountId)}.json`;
+  fs.mkdirSync(authDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(authDir, tokenFile),
+    JSON.stringify(
+      {
+        access_token: accessToken,
+        expired: '2099-01-01T00:00:00.000Z',
+        type: 'claude',
+        email: accountId,
+      },
+      null,
+      2
+    )
   );
 }
 
@@ -228,6 +251,69 @@ describe('Quota Exhaustion Handlers', () => {
       // Should return gracefully with null switched
       expect(result.switchedTo).toBeNull();
       expect(result.reason).toContain('no alternatives');
+    });
+
+    it('should switch Claude accounts when fallback quota is unavailable but auth is valid', async () => {
+      writeRegistry({
+        claude: {
+          default: 'exhausted@example.com',
+          accounts: {
+            'exhausted@example.com': {
+              email: 'exhausted@example.com',
+              tokenFile: `claude-${sanitizeEmail('exhausted@example.com')}.json`,
+            },
+            'fallback@example.com': {
+              email: 'fallback@example.com',
+              tokenFile: `claude-${sanitizeEmail('fallback@example.com')}.json`,
+            },
+          },
+        },
+      });
+
+      writeConfig({
+        mode: 'auto',
+        auto: {
+          tier_priority: ['ultra', 'pro', 'free'],
+          exhaustion_threshold: 5,
+          cooldown_minutes: 10,
+          preflight_check: true,
+        },
+        runtime_monitor: {
+          enabled: true,
+          normal_interval_seconds: 300,
+          critical_interval_seconds: 60,
+          warn_threshold: 20,
+          exhaustion_threshold: 5,
+          cooldown_minutes: 10,
+        },
+      });
+
+      writeClaudeAuth('exhausted@example.com', 'exhausted-token');
+      writeClaudeAuth('fallback@example.com', 'fallback-token');
+
+      global.fetch = mock((_url: string, options?: RequestInit) => {
+        const authHeader = new Headers(options?.headers).get('Authorization') ?? '';
+        if (authHeader === 'Bearer fallback-token') {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                error: {
+                  message: 'OAuth authentication is currently not supported.',
+                },
+              }),
+              { status: 401, headers: { 'Content-Type': 'application/json' } }
+            )
+          );
+        }
+
+        return Promise.resolve(new Response('', { status: 500 }));
+      }) as typeof fetch;
+
+      const result = await handleQuotaExhaustion('claude', 'exhausted@example.com', 10);
+      const { getDefaultAccount } = await import('../../../src/cliproxy/account-manager');
+
+      expect(result.switchedTo).toBe('fallback@example.com');
+      expect(getDefaultAccount('claude')?.id).toBe('fallback@example.com');
     });
 
     it('should write warning to stderr', async () => {

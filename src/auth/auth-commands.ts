@@ -91,6 +91,9 @@ class AuthCommands {
       `  ${color('ccs auth create backup --context-group sprint-a --deeper-continuity', 'command')}`
     );
     console.log('');
+    console.log(`  ${dim('# Create clean profile without shared commands/skills/agents')}`);
+    console.log(`  ${color('ccs auth create sandbox --bare', 'command')}`);
+    console.log('');
     console.log(`  ${dim('# Set work as default')}`);
     console.log(`  ${color('ccs auth default work', 'command')}`);
     console.log('');
@@ -115,6 +118,9 @@ class AuthCommands {
     );
     console.log(
       `  ${color('--deeper-continuity', 'command')}       Advanced shared mode: sync additional continuity artifacts`
+    );
+    console.log(
+      `  ${color('--bare', 'command')}                    Create clean profile without shared symlinks (no CK/commands/skills)`
     );
     console.log(
       `  ${color('--yes, -y', 'command')}                 Skip confirmation prompts (remove)`

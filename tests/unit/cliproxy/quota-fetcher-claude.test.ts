@@ -360,6 +360,136 @@ describe('Claude Quota Fetcher', () => {
       expect(result.error).toContain('Authentication');
     });
 
+    it('treats OAuth-unsupported 401 as policy-limits unavailable', async () => {
+      createClaudeAccount(
+        'claude-oauth-unsupported@example.com',
+        {
+          access_token: 'oauth-token',
+          expired: '2099-01-01T00:00:00.000Z',
+          type: 'claude',
+        },
+        'claude'
+      );
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              type: 'error',
+              error: {
+                type: 'authentication_error',
+                message: 'OAuth authentication is currently not supported.',
+              },
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } }
+          )
+        )
+      ) as typeof fetch;
+
+      const result = await fetchClaudeQuota('claude-oauth-unsupported@example.com');
+
+      expect(result.success).toBe(true);
+      expect(result.needsReauth).toBeUndefined();
+      expect(result.windows).toHaveLength(0);
+      expect(result.coreUsage?.fiveHour).toBeNull();
+      expect(result.coreUsage?.weekly).toBeNull();
+    });
+
+    it('treats root-level OAuth-unsupported 401 message as policy-limits unavailable', async () => {
+      createClaudeAccount('claude-oauth-root-message@example.com', {
+        access_token: 'oauth-token',
+        expired: '2099-01-01T00:00:00.000Z',
+        type: 'claude',
+      });
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message: 'OAuth authentication is currently not supported.',
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } }
+          )
+        )
+      ) as typeof fetch;
+
+      const result = await fetchClaudeQuota('claude-oauth-root-message@example.com');
+
+      expect(result.success).toBe(true);
+      expect(result.needsReauth).toBeUndefined();
+      expect(result.windows).toHaveLength(0);
+      expect(result.coreUsage?.fiveHour).toBeNull();
+      expect(result.coreUsage?.weekly).toBeNull();
+    });
+
+    it('treats plain-text OAuth-unsupported 401 as policy-limits unavailable', async () => {
+      createClaudeAccount('claude-oauth-plaintext@example.com', {
+        access_token: 'oauth-token',
+        expired: '2099-01-01T00:00:00.000Z',
+        type: 'claude',
+      });
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response('OAuth authentication is currently not supported.', { status: 401 })
+        )
+      ) as typeof fetch;
+
+      const result = await fetchClaudeQuota('claude-oauth-plaintext@example.com');
+
+      expect(result.success).toBe(true);
+      expect(result.needsReauth).toBeUndefined();
+      expect(result.windows).toHaveLength(0);
+      expect(result.coreUsage?.fiveHour).toBeNull();
+      expect(result.coreUsage?.weekly).toBeNull();
+    });
+
+    it('keeps non-matching 401 payloads in the reauth path', async () => {
+      createClaudeAccount('claude-auth-other-401@example.com', {
+        access_token: 'oauth-token',
+        expired: '2099-01-01T00:00:00.000Z',
+        type: 'claude',
+      });
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                type: 'authentication_error',
+                message: 'Token revoked.',
+              },
+            }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } }
+          )
+        )
+      ) as typeof fetch;
+
+      const result = await fetchClaudeQuota('claude-auth-other-401@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.needsReauth).toBe(true);
+      expect(result.error).toContain('Authentication');
+    });
+
+    it('treats 404 policy limits responses as unavailable but successful', async () => {
+      createClaudeAccount('claude-policy-limits-404@example.com', {
+        access_token: 'oauth-token',
+        expired: '2099-01-01T00:00:00.000Z',
+        type: 'claude',
+      });
+
+      global.fetch = mock(() => Promise.resolve(new Response('', { status: 404 }))) as typeof fetch;
+
+      const result = await fetchClaudeQuota('claude-policy-limits-404@example.com');
+
+      expect(result.success).toBe(true);
+      expect(result.needsReauth).toBeUndefined();
+      expect(result.windows).toHaveLength(0);
+      expect(result.coreUsage?.fiveHour).toBeNull();
+      expect(result.coreUsage?.weekly).toBeNull();
+    });
+
     it('fails fast when auth file has no token', async () => {
       createClaudeAccount('claude-missing@example.com', {
         access_token: '   ',

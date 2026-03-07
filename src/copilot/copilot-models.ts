@@ -9,6 +9,27 @@
 import * as http from 'http';
 import { CopilotModel } from './types';
 
+const DEFAULT_COPILOT_MODEL_ID = 'gpt-4.1';
+const MAX_MODELS_BODY_SIZE = 1024 * 1024; // 1MB
+
+interface CopilotDaemonModelLimits {
+  max_context_window_tokens?: unknown;
+  max_output_tokens?: unknown;
+  max_prompt_tokens?: unknown;
+}
+
+interface CopilotDaemonModel {
+  id?: unknown;
+  name?: unknown;
+  capabilities?: {
+    limits?: CopilotDaemonModelLimits;
+  };
+}
+
+interface CopilotModelsResponse {
+  data?: CopilotDaemonModel[];
+}
+
 /**
  * Default models available through copilot-api.
  * Used as fallback when API is not reachable.
@@ -154,6 +175,13 @@ export const DEFAULT_COPILOT_MODELS: CopilotModel[] = [
  */
 export async function fetchModelsFromDaemon(port: number): Promise<CopilotModel[]> {
   return new Promise((resolve) => {
+    let resolved = false;
+    const safeResolve = (models: CopilotModel[]) => {
+      if (resolved) return;
+      resolved = true;
+      resolve(models);
+    };
+
     const req = http.request(
       {
         // Use 127.0.0.1 instead of localhost for more reliable local connections
@@ -168,36 +196,37 @@ export async function fetchModelsFromDaemon(port: number): Promise<CopilotModel[
 
         res.on('data', (chunk) => {
           data += chunk;
+          if (data.length > MAX_MODELS_BODY_SIZE) {
+            req.destroy();
+            safeResolve(DEFAULT_COPILOT_MODELS);
+          }
         });
 
         res.on('end', () => {
           try {
-            const response = JSON.parse(data) as { data?: Array<{ id: string }> };
-            if (response.data && Array.isArray(response.data)) {
-              const models: CopilotModel[] = response.data.map((m) => ({
-                id: m.id,
-                name: formatModelName(m.id),
-                provider: detectProvider(m.id),
-                isDefault: m.id === 'gpt-4.1', // Free tier default
-              }));
-              resolve(models.length > 0 ? models : DEFAULT_COPILOT_MODELS);
+            const response = JSON.parse(data) as CopilotModelsResponse;
+            if (Array.isArray(response.data)) {
+              const models = response.data
+                .map(mapDaemonModel)
+                .filter((model): model is CopilotModel => model !== null);
+              safeResolve(models.length > 0 ? models : DEFAULT_COPILOT_MODELS);
             } else {
-              resolve(DEFAULT_COPILOT_MODELS);
+              safeResolve(DEFAULT_COPILOT_MODELS);
             }
           } catch {
-            resolve(DEFAULT_COPILOT_MODELS);
+            safeResolve(DEFAULT_COPILOT_MODELS);
           }
         });
       }
     );
 
     req.on('error', () => {
-      resolve(DEFAULT_COPILOT_MODELS);
+      safeResolve(DEFAULT_COPILOT_MODELS);
     });
 
     req.on('timeout', () => {
       req.destroy();
-      resolve(DEFAULT_COPILOT_MODELS);
+      safeResolve(DEFAULT_COPILOT_MODELS);
     });
 
     req.end();
@@ -216,7 +245,7 @@ export async function getAvailableModels(port: number): Promise<CopilotModel[]> 
  * Uses gpt-4.1 as it's available on free tier.
  */
 export function getDefaultModel(): string {
-  return 'gpt-4.1';
+  return DEFAULT_COPILOT_MODEL_ID;
 }
 
 /**
@@ -245,4 +274,41 @@ function formatModelName(modelId: string): string {
     .split('-')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+function normalizeLimitValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function extractLimits(limits?: CopilotDaemonModelLimits): CopilotModel['limits'] | undefined {
+  if (!limits) return undefined;
+
+  const normalized = {
+    maxContextWindowTokens: normalizeLimitValue(limits.max_context_window_tokens),
+    maxOutputTokens: normalizeLimitValue(limits.max_output_tokens),
+    maxPromptTokens: normalizeLimitValue(limits.max_prompt_tokens),
+  };
+
+  return Object.values(normalized).some((value) => value !== undefined) ? normalized : undefined;
+}
+
+function mapDaemonModel(entry: CopilotDaemonModel): CopilotModel | null {
+  if (typeof entry.id !== 'string') return null;
+  const id = entry.id.trim();
+  if (!id) return null;
+
+  const defaultMeta = DEFAULT_COPILOT_MODELS.find((model) => model.id === id);
+  const limits = extractLimits(entry.capabilities?.limits);
+
+  return {
+    ...defaultMeta,
+    id,
+    name:
+      typeof entry.name === 'string' && entry.name.trim().length > 0
+        ? entry.name.trim()
+        : (defaultMeta?.name ?? formatModelName(id)),
+    provider: defaultMeta?.provider ?? detectProvider(id),
+    isDefault: id === DEFAULT_COPILOT_MODEL_ID,
+    ...(limits ? { limits } : {}),
+  };
 }

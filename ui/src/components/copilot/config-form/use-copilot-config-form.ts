@@ -56,7 +56,7 @@ export function useCopilotConfigForm() {
   const autoStart = localOverrides.autoStart ?? config?.auto_start ?? false;
   const port = localOverrides.port ?? config?.port ?? 4141;
   const accountType = localOverrides.accountType ?? config?.account_type ?? 'individual';
-  const currentModel = localOverrides.model ?? config?.model ?? 'claude-sonnet-4-5-20250929';
+  const currentModel = localOverrides.model ?? config?.model ?? 'claude-sonnet-4-6';
   const rateLimit = localOverrides.rateLimit ?? config?.rate_limit?.toString() ?? '';
   const waitOnLimit = localOverrides.waitOnLimit ?? config?.wait_on_limit ?? true;
   const opusModel = localOverrides.opusModel ?? config?.opus_model ?? '';

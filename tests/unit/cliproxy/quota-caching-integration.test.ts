@@ -17,6 +17,7 @@ import {
   getQuotaCacheStats,
   QUOTA_CACHE_TTL_MS,
 } from '../../../src/cliproxy/quota-response-cache';
+import { shouldCacheQuotaResult } from '../../../src/web-server/routes/cliproxy-stats-routes';
 import type { GeminiCliQuotaResult, CodexQuotaResult } from '../../../src/cliproxy/quota-types';
 
 describe('Quota Caching Integration', () => {
@@ -307,6 +308,60 @@ describe('Quota Caching Integration', () => {
       const cached = getCachedQuota<CodexQuotaResult>('codex', 'user@example.com');
 
       expect(cached?.error).toBe('API error: 503');
+    });
+
+    it('should cache stable auth and workspace failures', () => {
+      expect(
+        shouldCacheQuotaResult({
+          success: false,
+          needsReauth: true,
+          error: 'Token expired',
+        })
+      ).toBe(true);
+
+      expect(
+        shouldCacheQuotaResult({
+          success: false,
+          httpStatus: 402,
+          error: 'Workspace deactivated (HTTP 402)',
+        })
+      ).toBe(true);
+    });
+
+    it('should skip transient failures marked retryable or temporary by status', () => {
+      expect(
+        shouldCacheQuotaResult({
+          success: false,
+          retryable: true,
+          error: 'Rate limited - try again later',
+        })
+      ).toBe(false);
+
+      expect(
+        shouldCacheQuotaResult({
+          success: false,
+          httpStatus: 429,
+          error: 'Rate limited - try again later',
+        })
+      ).toBe(false);
+
+      expect(
+        shouldCacheQuotaResult({
+          success: false,
+          httpStatus: 503,
+          error: 'Codex quota service unavailable (HTTP 503)',
+        })
+      ).toBe(false);
+    });
+
+    it('should respect explicit non-retryable failures even without message pattern matches', () => {
+      expect(
+        shouldCacheQuotaResult({
+          success: false,
+          retryable: false,
+          error: 'Unknown upstream error',
+        })
+      ).toBe(true);
     });
   });
 

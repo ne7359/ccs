@@ -326,6 +326,227 @@ describe('ToolSanitizationProxy Integration', () => {
       }
     });
 
+    it('strips Gemini-unsupported top-level tool fields while keeping schema sanitization', async () => {
+      const proxy = new ToolSanitizationProxy({
+        upstreamBaseUrl: `http://127.0.0.1:${mockUpstreamPort}`,
+      });
+      const port = await proxy.start();
+
+      try {
+        await fetch(`http://127.0.0.1:${port}/api/provider/gemini/v1/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gemini-2.5-pro',
+            tools: [
+              {
+                name: 'tool__with__duplicate__duplicate',
+                description: 'Test description',
+                strict: true,
+                input_examples: [{ command: 'ls -la' }],
+                type: 'custom',
+                cache_control: { type: 'ephemeral' },
+                defer_loading: true,
+                input_schema: {
+                  type: 'object',
+                  properties: {
+                    command: {
+                      type: 'string',
+                      examples: ['ls -la'],
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+        });
+
+        const sentTools = (lastRequest!.body as Record<string, unknown>).tools as Array<
+          Record<string, unknown>
+        >;
+        expect(sentTools[0].name).toBe('tool__with__duplicate');
+        expect(sentTools[0].description).toBe('Test description');
+        expect(sentTools[0].strict).toBeUndefined();
+        expect(sentTools[0].input_examples).toBeUndefined();
+        expect(sentTools[0].type).toBeUndefined();
+        expect(sentTools[0].cache_control).toBeUndefined();
+        expect(sentTools[0].defer_loading).toBeUndefined();
+        expect(sentTools[0].input_schema).toEqual({
+          type: 'object',
+          properties: {
+            command: {
+              type: 'string',
+            },
+          },
+        });
+      } finally {
+        proxy.stop();
+      }
+    });
+
+    it('strips only Codex-unsupported top-level tool fields before forwarding', async () => {
+      const proxy = new ToolSanitizationProxy({
+        upstreamBaseUrl: `http://127.0.0.1:${mockUpstreamPort}`,
+      });
+      const port = await proxy.start();
+
+      try {
+        await fetch(`http://127.0.0.1:${port}/api/provider/codex/v1/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gpt-5.3-codex',
+            tools: [
+              {
+                name: 'codex_tool',
+                description: 'Codex test',
+                cache_control: { type: 'ephemeral' },
+                defer_loading: true,
+                input_schema: {
+                  type: 'object',
+                  properties: {
+                    prompt: {
+                      type: 'string',
+                      examples: ['fix the failing test'],
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+        });
+
+        const sentTools = (lastRequest!.body as Record<string, unknown>).tools as Array<
+          Record<string, unknown>
+        >;
+        expect(sentTools[0].name).toBe('codex_tool');
+        expect(sentTools[0].description).toBe('Codex test');
+        expect(sentTools[0].cache_control).toBeUndefined();
+        expect(sentTools[0].defer_loading).toBe(true);
+        expect(sentTools[0].input_schema).toEqual({
+          type: 'object',
+          properties: {
+            prompt: {
+              type: 'string',
+            },
+          },
+        });
+      } finally {
+        proxy.stop();
+      }
+    });
+
+    for (const model of [
+      'gpt-5.3-codex-xhigh',
+      'gpt-5.1-codex-mini',
+      'gpt-5.1-codex',
+      'gpt-5-codex',
+    ]) {
+      it(`strips only Codex-unsupported top-level tool fields on root model-routed request (${model})`, async () => {
+        const proxy = new ToolSanitizationProxy({
+          upstreamBaseUrl: `http://127.0.0.1:${mockUpstreamPort}`,
+        });
+        const port = await proxy.start();
+
+        try {
+          await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              tools: [
+                {
+                  name: 'root_codex_tool',
+                  description: 'Root-routed Codex test',
+                  cache_control: { type: 'ephemeral' },
+                  defer_loading: true,
+                  input_schema: {
+                    type: 'object',
+                    properties: {
+                      prompt: {
+                        type: 'string',
+                        examples: ['fix the failing test'],
+                      },
+                    },
+                  },
+                },
+              ],
+            }),
+          });
+
+          const sentTools = (lastRequest!.body as Record<string, unknown>).tools as Array<
+            Record<string, unknown>
+          >;
+          expect(sentTools[0].name).toBe('root_codex_tool');
+          expect(sentTools[0].description).toBe('Root-routed Codex test');
+          expect(sentTools[0].cache_control).toBeUndefined();
+          expect(sentTools[0].defer_loading).toBe(true);
+          expect(sentTools[0].input_schema).toEqual({
+            type: 'object',
+            properties: {
+              prompt: {
+                type: 'string',
+              },
+            },
+          });
+        } finally {
+          proxy.stop();
+        }
+      });
+    }
+
+    it('preserves top-level tool fields for non-target root routes', async () => {
+      const proxy = new ToolSanitizationProxy({
+        upstreamBaseUrl: `http://127.0.0.1:${mockUpstreamPort}`,
+      });
+      const port = await proxy.start();
+
+      try {
+        await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            tools: [
+              {
+                name: 'claude_tool__duplicate__duplicate',
+                description: 'Anthropic passthrough test',
+                cache_control: { type: 'ephemeral' },
+                defer_loading: true,
+                input_schema: {
+                  type: 'object',
+                  properties: {
+                    prompt: {
+                      type: 'string',
+                      examples: ['keep these top-level fields'],
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+        });
+
+        const sentTools = (lastRequest!.body as Record<string, unknown>).tools as Array<
+          Record<string, unknown>
+        >;
+        expect(sentTools[0].name).toBe('claude_tool__duplicate');
+        expect(sentTools[0].description).toBe('Anthropic passthrough test');
+        expect(sentTools[0].cache_control).toEqual({ type: 'ephemeral' });
+        expect(sentTools[0].defer_loading).toBe(true);
+        expect(sentTools[0].input_schema).toEqual({
+          type: 'object',
+          properties: {
+            prompt: {
+              type: 'string',
+            },
+          },
+        });
+      } finally {
+        proxy.stop();
+      }
+    });
+
     it('preserves other tool properties during sanitization', async () => {
       const proxy = new ToolSanitizationProxy({
         upstreamBaseUrl: `http://127.0.0.1:${mockUpstreamPort}`,
@@ -341,7 +562,10 @@ describe('ToolSanitizationProxy Integration', () => {
               {
                 name: 'foo__bar__bar',
                 description: 'Test description',
-                input_schema: { type: 'object', properties: { x: { type: 'string' } } },
+                input_schema: {
+                  type: 'object',
+                  properties: { x: { type: 'string', examples: ['demo'] } },
+                },
               },
             ],
           }),

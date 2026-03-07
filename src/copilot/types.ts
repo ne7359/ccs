@@ -41,6 +41,15 @@ export interface CopilotStatus {
  */
 export type CopilotPlanTier = 'free' | 'pro' | 'pro+' | 'business' | 'enterprise';
 
+export interface CopilotModelLimits {
+  /** Maximum total context window exposed by GitHub Copilot */
+  maxContextWindowTokens?: number;
+  /** Maximum output/completion tokens exposed by GitHub Copilot */
+  maxOutputTokens?: number;
+  /** Maximum prompt/input tokens exposed by GitHub Copilot */
+  maxPromptTokens?: number;
+}
+
 /**
  * Copilot model information.
  */
@@ -57,6 +66,8 @@ export interface CopilotModel {
   multiplier?: number;
   /** Whether this model is in preview */
   preview?: boolean;
+  /** Live model limits returned by GitHub Copilot metadata, when available */
+  limits?: CopilotModelLimits;
 }
 
 /**

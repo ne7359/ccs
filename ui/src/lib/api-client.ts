@@ -124,6 +124,83 @@ export interface UpdateProfile {
   target?: CliTarget;
 }
 
+export interface ProfileValidationIssue {
+  level: 'error' | 'warning';
+  code: string;
+  message: string;
+  field?: string;
+  hint?: string;
+}
+
+export interface ProfileValidationSummary {
+  valid: boolean;
+  issues: ProfileValidationIssue[];
+}
+
+export interface ApiProfileOrphanCandidate {
+  name: string;
+  settingsPath: string;
+  validation: ProfileValidationSummary;
+}
+
+export interface DiscoverProfileOrphansResponse {
+  orphans: ApiProfileOrphanCandidate[];
+}
+
+export interface RegisterProfileOrphansRequest {
+  names?: string[];
+  target?: CliTarget;
+  force?: boolean;
+}
+
+export interface RegisterProfileOrphansResponse {
+  registered: string[];
+  skipped: Array<{ name: string; reason: string }>;
+}
+
+export interface CopyProfileRequest {
+  destination: string;
+  target?: CliTarget;
+  force?: boolean;
+}
+
+export interface CopyProfileResponse {
+  success: boolean;
+  name?: string;
+  settingsPath?: string;
+  warnings?: string[];
+}
+
+export interface ApiProfileExportBundle {
+  schemaVersion: 1;
+  exportedAt: string;
+  profile: {
+    name: string;
+    target: CliTarget;
+  };
+  settings: Record<string, unknown>;
+}
+
+export interface ExportProfileResponse {
+  success: boolean;
+  bundle: ApiProfileExportBundle;
+  redacted?: boolean;
+}
+
+export interface ImportProfileRequest {
+  bundle: ApiProfileExportBundle;
+  name?: string;
+  target?: CliTarget;
+  force?: boolean;
+}
+
+export interface ImportProfileResponse {
+  success: boolean;
+  name?: string;
+  warnings?: string[];
+  validation?: ProfileValidationSummary;
+}
+
 export interface Variant {
   name: string;
   provider: CLIProxyProvider;
@@ -241,10 +318,20 @@ export interface QuotaResult {
   models: ModelQuota[];
   /** Timestamp of fetch */
   lastUpdated: number;
+  /** Upstream HTTP status when available */
+  httpStatus?: number;
+  /** Stable machine-readable error code */
+  errorCode?: string;
+  /** Additional provider-specific detail/code from upstream */
+  errorDetail?: string;
   /** True if account lacks quota access (403) */
   isForbidden?: boolean;
   /** Error message if fetch failed */
   error?: string;
+  /** Provider-specific remediation guidance */
+  actionHint?: string;
+  /** True when the failure is temporary and retrying later may help */
+  retryable?: boolean;
   /** True if token is expired and needs re-authentication */
   needsReauth?: boolean;
 }
@@ -295,12 +382,22 @@ export interface CodexQuotaResult {
   planType: 'free' | 'plus' | 'team' | null;
   /** Timestamp of fetch */
   lastUpdated: number;
+  /** Upstream HTTP status when available */
+  httpStatus?: number;
+  /** Stable machine-readable error code */
+  errorCode?: string;
+  /** Additional provider-specific detail/code from upstream */
+  errorDetail?: string;
   /** Error message if fetch failed */
   error?: string;
   /** Account ID (email) this quota belongs to */
   accountId?: string;
+  /** Provider-specific remediation guidance */
+  actionHint?: string;
   /** True if token is expired and needs re-authentication */
   needsReauth?: boolean;
+  /** True when the failure is temporary and retrying later may help */
+  retryable?: boolean;
   /** True if result was served from cache */
   cached?: boolean;
   /** True if account lacks quota access (403) - displayed as 0% instead of error */
@@ -353,9 +450,15 @@ export interface ClaudeQuotaResult {
   windows: ClaudeQuotaWindow[];
   coreUsage?: ClaudeCoreUsageSummary;
   lastUpdated: number;
+  httpStatus?: number;
+  errorCode?: string;
+  errorDetail?: string;
+  isForbidden?: boolean;
   error?: string;
   accountId?: string;
+  actionHint?: string;
   needsReauth?: boolean;
+  retryable?: boolean;
   /** True if result was served from cache */
   cached?: boolean;
 }
@@ -388,12 +491,24 @@ export interface GeminiCliQuotaResult {
   projectId: string | null;
   /** Timestamp of fetch */
   lastUpdated: number;
+  /** Upstream HTTP status when available */
+  httpStatus?: number;
+  /** Stable machine-readable error code */
+  errorCode?: string;
+  /** Additional provider-specific detail/code from upstream */
+  errorDetail?: string;
+  /** True if account lacks quota access (403) */
+  isForbidden?: boolean;
   /** Error message if fetch failed */
   error?: string;
   /** Account ID (email) this quota belongs to */
   accountId?: string;
+  /** Provider-specific remediation guidance */
+  actionHint?: string;
   /** True if token is expired and needs re-authentication */
   needsReauth?: boolean;
+  /** True when the failure is temporary and retrying later may help */
+  retryable?: boolean;
   /** True if result was served from cache */
   cached?: boolean;
 }
@@ -435,12 +550,24 @@ export interface GhcpQuotaResult {
   };
   /** Timestamp of fetch */
   lastUpdated: number;
+  /** Upstream HTTP status when available */
+  httpStatus?: number;
+  /** Stable machine-readable error code */
+  errorCode?: string;
+  /** Additional provider-specific detail/code from upstream */
+  errorDetail?: string;
+  /** True if account lacks quota access (403) */
+  isForbidden?: boolean;
   /** Error message if fetch failed */
   error?: string;
   /** Account ID this quota belongs to */
   accountId?: string;
+  /** Provider-specific remediation guidance */
+  actionHint?: string;
   /** True if token is expired and needs re-authentication */
   needsReauth?: boolean;
+  /** True when the failure is temporary and retrying later may help */
+  retryable?: boolean;
   /** True if result was served from cache */
   cached?: boolean;
 }
@@ -598,6 +725,10 @@ export interface CliproxyVersionsResponse {
   latest: string;
   currentVersion: string;
   maxStableVersion: string;
+  faultyRange?: {
+    min: string;
+    max: string;
+  };
   fromCache: boolean;
   checkedAt: number;
 }
@@ -606,7 +737,10 @@ export interface CliproxyVersionsResponse {
 export interface CliproxyInstallResult {
   success: boolean;
   version?: string;
-  isUnstable?: boolean;
+  restarted?: boolean;
+  port?: number;
+  isFaulty?: boolean;
+  isExperimental?: boolean;
   requiresConfirmation?: boolean;
   message?: string;
   error?: string;
@@ -634,6 +768,27 @@ export const api = {
         body: JSON.stringify(data),
       }),
     delete: (name: string) => request(`/profiles/${name}`, { method: 'DELETE' }),
+    discoverOrphans: () => request<DiscoverProfileOrphansResponse>('/profiles/orphans'),
+    registerOrphans: (data: RegisterProfileOrphansRequest) =>
+      request<RegisterProfileOrphansResponse>('/profiles/orphans/register', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    copy: (name: string, data: CopyProfileRequest) =>
+      request<CopyProfileResponse>(`/profiles/${name}/copy`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    export: (name: string, includeSecrets = false) =>
+      request<ExportProfileResponse>(`/profiles/${name}/export`, {
+        method: 'POST',
+        body: JSON.stringify({ includeSecrets }),
+      }),
+    import: (data: ImportProfileRequest) =>
+      request<ImportProfileResponse>('/profiles/import', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
   cliproxy: {
     list: () => request<{ variants: Variant[] }>('/cliproxy'),

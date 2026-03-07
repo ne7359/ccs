@@ -281,7 +281,7 @@ function calculateQuotaPercent(quota: ManagedQuotaResult): number | null {
 export async function findHealthyAccount(
   provider: CLIProxyProvider,
   exclude: string[]
-): Promise<{ id: string; tier: string; lastQuota: number } | null> {
+): Promise<{ id: string; tier: string; lastQuota: number | null } | null> {
   if (!isManagedQuotaProvider(provider)) {
     return null;
   }
@@ -309,7 +309,7 @@ export async function findHealthyAccount(
         quota = await fetchQuotaWithDedup(provider, account.id);
       }
 
-      const avgQuota = calculateQuotaPercent(quota) ?? 0;
+      const avgQuota = calculateQuotaPercent(quota);
 
       return {
         id: account.id,
@@ -320,22 +320,24 @@ export async function findHealthyAccount(
     10
   );
 
-  // Filter by threshold
-  const healthy = withQuotas.filter((a) => a.lastQuota >= threshold);
-  if (healthy.length === 0) return null;
+  // Prefer accounts with known healthy quota. If all remaining accounts have unavailable
+  // quota data, fall back to those unknown-but-usable accounts instead of treating them as 0%.
+  const healthy = withQuotas.filter((a) => a.lastQuota !== null && a.lastQuota >= threshold);
+  const selectable = healthy.length > 0 ? healthy : withQuotas.filter((a) => a.lastQuota === null);
+  if (selectable.length === 0) return null;
 
   // Sort by tier priority then quota descending
-  healthy.sort((a, b) => {
+  selectable.sort((a, b) => {
     const tierA = tierPriority.indexOf(a.tier);
     const tierB = tierPriority.indexOf(b.tier);
     const tierOrderA = tierA === -1 ? 999 : tierA;
     const tierOrderB = tierB === -1 ? 999 : tierB;
 
     if (tierOrderA !== tierOrderB) return tierOrderA - tierOrderB;
-    return b.lastQuota - a.lastQuota;
+    return (b.lastQuota ?? -1) - (a.lastQuota ?? -1);
   });
 
-  return healthy[0];
+  return selectable[0];
 }
 
 /**

@@ -1163,10 +1163,16 @@ async function main(): Promise<void> {
       const accountMetadata = isAccountContextMetadata(profileInfo.profile)
         ? profileInfo.profile
         : undefined;
+      const isBareProfile =
+        typeof profileInfo.profile === 'object' &&
+        profileInfo.profile !== null &&
+        (profileInfo.profile as { bare?: unknown }).bare === true;
       const contextPolicy = resolveAccountContextPolicy(accountMetadata);
 
       // Ensure instance exists (lazy init if needed)
-      const instancePath = await instanceMgr.ensureInstance(profileInfo.name, contextPolicy);
+      const instancePath = await instanceMgr.ensureInstance(profileInfo.name, contextPolicy, {
+        bare: isBareProfile,
+      });
 
       // Update last_used timestamp (check unified config first, fallback to legacy)
       if (registry.hasAccountUnified(profileInfo.name)) {

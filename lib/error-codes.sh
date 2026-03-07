@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # CCS Error Codes
-# Documentation: ../docs/errors/README.md
+# Documentation: https://docs.ccs.kaitran.ca/reference/error-codes
+
+readonly ERROR_CODE_DOCS_BASE_URL="https://docs.ccs.kaitran.ca/reference/error-codes"
 
 # Configuration Errors (E100-E199)
 readonly E_CONFIG_MISSING="E101"
 readonly E_CONFIG_INVALID_JSON="E102"
 readonly E_CONFIG_INVALID_PROFILE="E103"
 
-# Profile Management Errors (E200-E299)
+# Profile Management Errors (E104-E107)
 readonly E_PROFILE_NOT_FOUND="E104"
 readonly E_PROFILE_ALREADY_EXISTS="E105"
 readonly E_PROFILE_CANNOT_DELETE_DEFAULT="E106"
@@ -37,7 +39,9 @@ readonly E_INVALID_STATE="E901"
 # Get error documentation URL
 get_error_doc_url() {
   local error_code="$1"
-  echo "https://github.com/kaitranntt/ccs/blob/main/docs/errors/README.md#${error_code,,}"
+  local lowercase_code
+  lowercase_code="$(printf '%s' "$error_code" | tr '[:upper:]' '[:lower:]')"
+  echo "${ERROR_CODE_DOCS_BASE_URL}#${lowercase_code}"
 }
 
 # Get error category from code
@@ -45,10 +49,10 @@ get_error_category() {
   local error_code="$1"
   local code="${error_code#E}"
 
-  if [[ $code -ge 100 && $code -lt 200 ]]; then
-    echo "Configuration"
-  elif [[ $code -ge 200 && $code -lt 300 ]]; then
+  if [[ "$error_code" == "$E_PROFILE_NOT_FOUND" || "$error_code" == "$E_PROFILE_ALREADY_EXISTS" || "$error_code" == "$E_PROFILE_CANNOT_DELETE_DEFAULT" || "$error_code" == "$E_PROFILE_INVALID_NAME" ]]; then
     echo "Profile Management"
+  elif [[ $code -ge 100 && $code -lt 200 ]]; then
+    echo "Configuration"
   elif [[ $code -ge 300 && $code -lt 400 ]]; then
     echo "Claude CLI Detection"
   elif [[ $code -ge 400 && $code -lt 500 ]]; then

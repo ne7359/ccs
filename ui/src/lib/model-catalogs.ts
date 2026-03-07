@@ -121,7 +121,7 @@ export const MODEL_CATALOGS: Record<string, ProviderCatalog> = {
           default: 'gpt-5.3-codex',
           opus: 'gpt-5.3-codex',
           sonnet: 'gpt-5.3-codex',
-          haiku: 'gpt-5-mini',
+          haiku: 'gpt-5.1-codex-mini',
         },
       },
       {
@@ -132,7 +132,7 @@ export const MODEL_CATALOGS: Record<string, ProviderCatalog> = {
           default: 'gpt-5.2-codex',
           opus: 'gpt-5.2-codex',
           sonnet: 'gpt-5.2-codex',
-          haiku: 'gpt-5-mini',
+          haiku: 'gpt-5.1-codex-mini',
         },
       },
       {
@@ -441,7 +441,7 @@ export const MODEL_CATALOGS: Record<string, ProviderCatalog> = {
   claude: {
     provider: 'claude',
     displayName: 'Claude (Anthropic)',
-    defaultModel: 'claude-sonnet-4-5-20250929',
+    defaultModel: 'claude-sonnet-4-6',
     models: [
       {
         id: 'claude-opus-4-6',
@@ -451,7 +451,19 @@ export const MODEL_CATALOGS: Record<string, ProviderCatalog> = {
         presetMapping: {
           default: 'claude-opus-4-6',
           opus: 'claude-opus-4-6',
-          sonnet: 'claude-sonnet-4-5-20250929',
+          sonnet: 'claude-sonnet-4-6',
+          haiku: 'claude-haiku-4-5-20251001',
+        },
+      },
+      {
+        id: 'claude-sonnet-4-6',
+        name: 'Claude Sonnet 4.6',
+        description: 'Balanced performance and speed',
+        extendedContext: true,
+        presetMapping: {
+          default: 'claude-sonnet-4-6',
+          opus: 'claude-opus-4-6',
+          sonnet: 'claude-sonnet-4-6',
           haiku: 'claude-haiku-4-5-20251001',
         },
       },

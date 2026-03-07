@@ -34,6 +34,7 @@ import {
   cn,
   formatQuotaPercent,
   getCodexQuotaBreakdown,
+  getQuotaFailureInfo,
   getProviderMinQuota,
   getProviderResetTime,
   isClaudeQuotaResult,
@@ -42,6 +43,7 @@ import {
 import { PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
 import { useAccountQuota, useCliproxyStats } from '@/hooks/use-cliproxy-stats';
 import { QuotaTooltipContent } from '@/components/shared/quota-tooltip-content';
+import { useTranslation } from 'react-i18next';
 import type { AccountItemProps } from './types';
 
 /**
@@ -106,6 +108,7 @@ export function AccountItem({
   selected,
   onSelectChange,
 }: AccountItemProps) {
+  const { t } = useTranslation();
   const normalizedProvider = account.provider.toLowerCase();
   const isCodexProvider = normalizedProvider === 'codex';
   const isClaudeProvider = normalizedProvider === 'claude' || normalizedProvider === 'anthropic';
@@ -170,6 +173,19 @@ export function AccountItem({
       : [];
   const minQuotaLabel = minQuota !== null ? formatQuotaPercent(minQuota) : null;
   const minQuotaValue = minQuotaLabel !== null ? Number(minQuotaLabel) : null;
+  const failureInfo = getQuotaFailureInfo(quota);
+  const FailureIcon =
+    failureInfo?.label === 'Reauth'
+      ? KeyRound
+      : failureInfo?.tone === 'warning'
+        ? AlertTriangle
+        : AlertCircle;
+  const failureBadgeClass =
+    failureInfo?.tone === 'warning'
+      ? 'border-amber-500/50 text-amber-600 dark:text-amber-400'
+      : failureInfo?.tone === 'destructive'
+        ? 'border-destructive/50 text-destructive'
+        : 'border-muted-foreground/50 text-muted-foreground';
 
   return (
     <div
@@ -436,50 +452,40 @@ export function AccountItem({
                 className="text-[10px] h-5 px-2 gap-1 border-muted-foreground/50 text-muted-foreground"
               >
                 <HelpCircle className="w-3 h-3" />
-                No limits
+                {t('accountCard.quotaUnavailable')}
               </Badge>
             </div>
-          ) : quota?.needsReauth ? (
+          ) : failureInfo ? (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="flex items-center gap-1.5">
                     <Badge
                       variant="outline"
-                      className="text-[10px] h-5 px-2 gap-1 border-amber-500/50 text-amber-600 dark:text-amber-400"
+                      className={cn('text-[10px] h-5 px-2 gap-1', failureBadgeClass)}
                     >
-                      <KeyRound className="w-3 h-3" />
-                      Reauth
+                      <FailureIcon className="w-3 h-3" />
+                      {failureInfo.label}
                     </Badge>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-[220px]">
-                  <p className="text-xs">
-                    {quota.error?.includes('No refresh token')
-                      ? 'No refresh token available. Remove and re-add account to fix.'
-                      : quota.error?.includes('refresh') || quota.error?.includes('Invalid')
-                        ? `Auto-refresh failed: ${quota.error}`
-                        : `Token issue: ${quota.error || 'Re-authenticate required'}`}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          ) : quota?.error || (quota && !quota.success) ? (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5">
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] h-5 px-2 gap-1 border-muted-foreground/50 text-muted-foreground"
-                    >
-                      <AlertCircle className="w-3 h-3" />
-                      N/A
-                    </Badge>
+                <TooltipContent side="bottom" className="max-w-[260px]">
+                  <div className="space-y-1 text-xs">
+                    <p>{failureInfo.summary}</p>
+                    {failureInfo.actionHint && (
+                      <p className="text-muted-foreground">{failureInfo.actionHint}</p>
+                    )}
+                    {failureInfo.technicalDetail && (
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {failureInfo.technicalDetail}
+                      </p>
+                    )}
+                    {failureInfo.rawDetail && (
+                      <pre className="whitespace-pre-wrap break-all rounded bg-muted/40 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+                        {failureInfo.rawDetail}
+                      </pre>
+                    )}
                   </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">{quota?.error || 'Quota information unavailable'}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

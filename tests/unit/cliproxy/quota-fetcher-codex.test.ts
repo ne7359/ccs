@@ -4,12 +4,47 @@
  * Tests for Codex quota window parsing and transformation logic
  */
 
-import { describe, it, expect } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   buildCodexQuotaWindows,
   buildCodexCoreUsageSummary,
+  fetchCodexQuota,
   getUnknownCodexWindowLabels,
 } from '../../../src/cliproxy/quota-fetcher-codex';
+
+let tmpDir: string;
+let originalCcsHome: string | undefined;
+let originalFetch: typeof fetch;
+
+function createCodexAccount(
+  accountId: string,
+  tokenPayload: Record<string, unknown>,
+  tokenFile = `codex-${accountId.replace(/[@.]/g, '_')}.json`
+): void {
+  const authDir = path.join(tmpDir, '.ccs', 'cliproxy', 'auth');
+  fs.mkdirSync(authDir, { recursive: true });
+  fs.writeFileSync(path.join(authDir, tokenFile), JSON.stringify(tokenPayload));
+}
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-codex-quota-test-'));
+  originalCcsHome = process.env.CCS_HOME;
+  process.env.CCS_HOME = tmpDir;
+  originalFetch = global.fetch;
+});
+
+afterEach(() => {
+  global.fetch = originalFetch;
+  if (originalCcsHome !== undefined) {
+    process.env.CCS_HOME = originalCcsHome;
+  } else {
+    delete process.env.CCS_HOME;
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
 
 describe('Codex Quota Fetcher', () => {
   describe('buildCodexQuotaWindows', () => {
@@ -305,6 +340,186 @@ describe('Codex Quota Fetcher', () => {
       ]);
 
       expect(labels).toEqual([]);
+    });
+  });
+
+  describe('fetchCodexQuota failure mapping', () => {
+    function createValidCodexAccount(email: string, accountId = `workspace-${email}`): void {
+      createCodexAccount(email, {
+        access_token: 'test-token',
+        account_id: accountId,
+        expired: '2099-01-01T00:00:00.000Z',
+        email,
+        type: 'codex',
+      });
+    }
+
+    it('maps deactivated workspace 402 responses to structured metadata', async () => {
+      createValidCodexAccount('workspace@example.com', 'workspace-123');
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ detail: { code: 'deactivated_workspace' } }), {
+            status: 402,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        )
+      ) as typeof fetch;
+
+      const result = await fetchCodexQuota('workspace@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.httpStatus).toBe(402);
+      expect(result.errorCode).toBe('deactivated_workspace');
+      expect(result.error).toContain('Workspace deactivated');
+      expect(result.actionHint).toContain('active ChatGPT workspace');
+      expect(result.retryable).toBe(false);
+    });
+
+    it('maps 401 responses to reauth-required metadata', async () => {
+      createValidCodexAccount('reauth@example.com', 'workspace-reauth');
+
+      global.fetch = mock(() => Promise.resolve(new Response('', { status: 401 }))) as typeof fetch;
+
+      const result = await fetchCodexQuota('reauth@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.httpStatus).toBe(401);
+      expect(result.errorCode).toBe('reauth_required');
+      expect(result.needsReauth).toBe(true);
+      expect(result.actionHint).toContain('ccs cliproxy auth codex');
+    });
+
+    it('maps 403 responses to forbidden metadata', async () => {
+      createValidCodexAccount('forbidden@example.com', 'workspace-forbidden');
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ detail: { code: 'quota_api_forbidden' } }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        )
+      ) as typeof fetch;
+
+      const result = await fetchCodexQuota('forbidden@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.httpStatus).toBe(403);
+      expect(result.errorCode).toBe('quota_api_forbidden');
+      expect(result.isForbidden).toBe(true);
+      expect(result.retryable).toBe(false);
+    });
+
+    it('maps 429 responses to retryable rate-limit metadata', async () => {
+      createValidCodexAccount('rate-limit@example.com', 'workspace-rate-limit');
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ detail: { code: 'rate_limited' } }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        )
+      ) as typeof fetch;
+
+      const result = await fetchCodexQuota('rate-limit@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.httpStatus).toBe(429);
+      expect(result.errorCode).toBe('rate_limited');
+      expect(result.retryable).toBe(true);
+      expect(result.actionHint).toContain('Retry');
+    });
+
+    it('maps 5xx responses to retryable provider-unavailable metadata', async () => {
+      createValidCodexAccount('outage@example.com', 'workspace-outage');
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ detail: { code: 'upstream_failure' } }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        )
+      ) as typeof fetch;
+
+      const result = await fetchCodexQuota('outage@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.httpStatus).toBe(503);
+      expect(result.errorCode).toBe('upstream_failure');
+      expect(result.retryable).toBe(true);
+      expect(result.error).toContain('service unavailable');
+    });
+
+    it('maps unknown upstream statuses to a non-retryable structured error', async () => {
+      createValidCodexAccount('teapot@example.com', 'workspace-teapot');
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response('{"message":"Strange upstream response"}', {
+            status: 418,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        )
+      ) as typeof fetch;
+
+      const result = await fetchCodexQuota('teapot@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.httpStatus).toBe(418);
+      expect(result.errorCode).toBe('unknown_upstream_error');
+      expect(result.retryable).toBe(false);
+      expect(result.error).toBe('Strange upstream response');
+    });
+
+    it('sanitizes and truncates raw upstream error detail before returning it', async () => {
+      createValidCodexAccount('sanitized@example.com', 'workspace-sanitized');
+      const leakedToken = 'secret-token-value-123';
+      const oversizedMessage = 'x'.repeat(400);
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              message: 'Upstream failure',
+              access_token: leakedToken,
+              extra: oversizedMessage,
+            }),
+            {
+              status: 418,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        )
+      ) as typeof fetch;
+
+      const result = await fetchCodexQuota('sanitized@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.errorDetail).toBeDefined();
+      expect(result.errorDetail).not.toContain(leakedToken);
+      expect(result.errorDetail).toContain('[redacted]');
+      expect(result.errorDetail?.endsWith('...[truncated]')).toBe(true);
+    });
+
+    it('omits raw HTML upstream bodies from the returned error detail', async () => {
+      createValidCodexAccount('html@example.com', 'workspace-html');
+
+      global.fetch = mock(() =>
+        Promise.resolve(
+          new Response('<html><body>bad gateway</body></html>', {
+            status: 503,
+            headers: { 'Content-Type': 'text/html' },
+          })
+        )
+      ) as typeof fetch;
+
+      const result = await fetchCodexQuota('html@example.com');
+
+      expect(result.success).toBe(false);
+      expect(result.errorDetail).toBe('[HTML error response omitted]');
     });
   });
 });

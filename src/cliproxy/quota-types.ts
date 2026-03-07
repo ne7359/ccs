@@ -11,6 +11,21 @@ export type QuotaProvider = 'agy' | 'codex' | 'claude' | 'gemini' | 'ghcp';
 // Re-export Antigravity types for unified access
 export type { QuotaResult as AntigravityQuotaResult } from './quota-fetcher';
 
+export interface QuotaErrorMetadata {
+  /** Upstream HTTP status when available */
+  httpStatus?: number;
+  /** Stable machine-readable error code */
+  errorCode?: string;
+  /** Additional provider-specific detail/code from upstream */
+  errorDetail?: string;
+  /** True if account lacks quota access (403) */
+  isForbidden?: boolean;
+  /** Provider-specific remediation guidance */
+  actionHint?: string;
+  /** True when the failure is temporary and retrying later may help */
+  retryable?: boolean;
+}
+
 /**
  * Codex quota window (primary, secondary, code review)
  */
@@ -50,7 +65,7 @@ export interface CodexCoreUsageSummary {
 /**
  * Codex quota fetch result
  */
-export interface CodexQuotaResult {
+export interface CodexQuotaResult extends QuotaErrorMetadata {
   /** Whether fetch succeeded */
   success: boolean;
   /** Quota windows (primary, secondary, code review) */
@@ -130,7 +145,7 @@ export interface ClaudeCoreUsageSummary {
 /**
  * Claude quota fetch result
  */
-export interface ClaudeQuotaResult {
+export interface ClaudeQuotaResult extends QuotaErrorMetadata {
   /** Whether fetch succeeded */
   success: boolean;
   /** Policy limit windows */
@@ -170,7 +185,7 @@ export interface GeminiCliBucket {
 /**
  * Gemini CLI quota fetch result
  */
-export interface GeminiCliQuotaResult {
+export interface GeminiCliQuotaResult extends QuotaErrorMetadata {
   /** Whether fetch succeeded */
   success: boolean;
   /** Quota buckets grouped by model series */
@@ -214,7 +229,7 @@ export interface GhcpQuotaSnapshot {
 /**
  * GitHub Copilot quota fetch result.
  */
-export interface GhcpQuotaResult {
+export interface GhcpQuotaResult extends QuotaErrorMetadata {
   /** Whether fetch succeeded */
   success: boolean;
   /** Copilot plan type (individual/business/enterprise/free) */

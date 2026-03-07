@@ -13,6 +13,7 @@ import {
   getAvailableModels,
   isCopilotApiInstalled,
 } from '../copilot';
+import type { CopilotModel } from '../copilot';
 import { loadOrCreateUnifiedConfig, saveUnifiedConfig } from '../config/unified-config-loader';
 import { DEFAULT_COPILOT_CONFIG } from '../config/unified-config-types';
 import { ok, fail, info, color } from '../utils/ui';
@@ -195,12 +196,54 @@ async function handleModels(): Promise<number> {
     const defaultMark = model.isDefault ? ' (default)' : '';
     console.log(`  ${model.id}${current}${defaultMark}`);
     console.log(`    Provider: ${model.provider}`);
+    const limits = formatModelLimits(model);
+    if (limits) {
+      console.log(`    Limits:   ${limits}`);
+    }
   }
 
+  console.log('');
+  if (models.some((model) => formatModelLimits(model))) {
+    console.log('Live limits above come from GitHub Copilot model metadata.');
+  } else {
+    console.log('Live Copilot limits were unavailable. Start the daemon and rerun this command.');
+  }
+  console.log(
+    'CCS can switch Copilot models, but it cannot raise GitHub Copilot prompt/context caps.'
+  );
   console.log('');
   console.log('To change model: ccs config (Copilot section)');
 
   return 0;
+}
+
+function formatCompactTokens(value: number): string {
+  if (value >= 1_000_000) {
+    const millions = value / 1_000_000;
+    return millions % 1 === 0 ? `${millions}M` : `${millions.toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    const thousands = value / 1_000;
+    return thousands % 1 === 0 ? `${thousands}K` : `${thousands.toFixed(1)}K`;
+  }
+  return `${value}`;
+}
+
+function formatModelLimits(model: CopilotModel): string | null {
+  if (!model.limits) return null;
+
+  const parts: string[] = [];
+  if (model.limits.maxPromptTokens) {
+    parts.push(`prompt ${formatCompactTokens(model.limits.maxPromptTokens)}`);
+  }
+  if (model.limits.maxContextWindowTokens) {
+    parts.push(`context ${formatCompactTokens(model.limits.maxContextWindowTokens)}`);
+  }
+  if (model.limits.maxOutputTokens) {
+    parts.push(`output ${formatCompactTokens(model.limits.maxOutputTokens)}`);
+  }
+
+  return parts.length > 0 ? parts.join(' | ') : null;
 }
 
 function formatQuotaLine(

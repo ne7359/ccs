@@ -268,6 +268,7 @@ router.put('/:name/context', async (req: Request, res: Response): Promise<void> 
 
     const previousUnified = existsUnified ? registry.getAllAccountsUnified()[name] : undefined;
     const previousLegacy = existsLegacy ? registry.getProfile(name) : undefined;
+    const isBare = previousUnified?.bare === true || previousLegacy?.bare === true;
 
     try {
       if (existsUnified) {
@@ -277,7 +278,7 @@ router.put('/:name/context', async (req: Request, res: Response): Promise<void> 
         registry.updateProfile(name, metadata);
       }
 
-      await instanceMgr.ensureInstance(name, policy);
+      await instanceMgr.ensureInstance(name, policy, { bare: isBare });
     } catch (error) {
       if (existsUnified && previousUnified) {
         registry.updateAccountUnified(name, previousUnified);

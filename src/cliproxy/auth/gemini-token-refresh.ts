@@ -16,25 +16,17 @@ import { getProviderAuthDir } from '../config-generator';
 import { getDefaultAccount, getProviderAccounts } from '../account-manager';
 import { isTokenFileForProvider } from './token-manager';
 
-/**
- * Gemini OAuth credentials - PUBLIC from official Gemini CLI source code
- * These are not secrets - they're public OAuth client credentials that Google
- * distributes with their official applications. See:
- * https://github.com/google/generative-ai-python (Gemini CLI source)
- *
- * GitHub secret scanning may flag these, but they are intentionally hardcoded
- * as they're required for OAuth token refresh and are publicly documented.
- */
-
-const GEMINI_CLIENT_ID = '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
-
-const GEMINI_CLIENT_SECRET = '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';
-
 /** Google OAuth token endpoint */
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 /** Refresh tokens 5 minutes before expiry */
 const REFRESH_LEAD_TIME_MS = 5 * 60 * 1000;
+
+const GEMINI_CLIENT_ID_ENV_KEYS = ['CCS_GEMINI_OAUTH_CLIENT_ID', 'OPENCLAW_GEMINI_OAUTH_CLIENT_ID'];
+const GEMINI_CLIENT_SECRET_ENV_KEYS = [
+  'CCS_GEMINI_OAUTH_CLIENT_SECRET',
+  'OPENCLAW_GEMINI_OAUTH_CLIENT_SECRET',
+];
 
 /** Gemini oauth_creds.json structure */
 interface GeminiOAuthCreds {
@@ -44,6 +36,9 @@ interface GeminiOAuthCreds {
   scope?: string;
   token_type?: string;
   id_token?: string;
+  client_id?: string;
+  client_secret?: string;
+  token_uri?: string;
 }
 
 /** Gemini credentials with source path for write-back */
@@ -58,6 +53,9 @@ interface CliproxyGeminiToken {
     access_token: string;
     refresh_token?: string;
     expiry?: number; // Unix timestamp in milliseconds
+    client_id?: string;
+    client_secret?: string;
+    token_uri?: string;
   };
   project_id: string;
   email: string;
@@ -71,6 +69,12 @@ interface TokenRefreshResponse {
   token_type?: string;
   error?: string;
   error_description?: string;
+}
+
+interface GoogleOAuthClientCredentials {
+  clientId: string;
+  clientSecret: string;
+  tokenUrl: string;
 }
 
 /**
@@ -89,6 +93,9 @@ function mapCliproxyToGeminiCreds(cliproxy: CliproxyGeminiToken): GeminiOAuthCre
     refresh_token: cliproxy.token.refresh_token,
     expiry_date: cliproxy.token.expiry,
     token_type: 'Bearer',
+    client_id: cliproxy.token.client_id,
+    client_secret: cliproxy.token.client_secret,
+    token_uri: cliproxy.token.token_uri,
   };
 }
 
@@ -102,6 +109,41 @@ function isValidCliproxyToken(data: unknown): data is CliproxyGeminiToken {
   if (typeof obj.token !== 'object' || obj.token === null) return false;
   const token = obj.token as Record<string, unknown>;
   return typeof token.access_token === 'string';
+}
+
+function getFirstEnvValue(keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function resolveGeminiRefreshCredentials(creds: GeminiOAuthCreds): {
+  credentials?: GoogleOAuthClientCredentials;
+  error?: string;
+} {
+  const clientId = creds.client_id?.trim() || getFirstEnvValue(GEMINI_CLIENT_ID_ENV_KEYS);
+  const clientSecret =
+    creds.client_secret?.trim() || getFirstEnvValue(GEMINI_CLIENT_SECRET_ENV_KEYS);
+
+  if (!clientId || !clientSecret) {
+    return {
+      error:
+        'Gemini token refresh unavailable: missing OAuth client credentials in the token file. ' +
+        'Re-authenticate with CLIProxy or set CCS_GEMINI_OAUTH_CLIENT_ID and CCS_GEMINI_OAUTH_CLIENT_SECRET.',
+    };
+  }
+
+  return {
+    credentials: {
+      clientId,
+      clientSecret,
+      tokenUrl: creds.token_uri?.trim() || GOOGLE_TOKEN_URL,
+    },
+  };
 }
 
 /**
@@ -294,11 +336,17 @@ export async function refreshGeminiToken(accountId?: string): Promise<{
   }
 
   const { creds, sourcePath } = result;
+  const resolvedCredentials = resolveGeminiRefreshCredentials(creds);
+  if (!resolvedCredentials.credentials) {
+    return { success: false, error: resolvedCredentials.error };
+  }
+
+  const { clientId, clientSecret, tokenUrl } = resolvedCredentials.credentials;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const response = await fetch(GOOGLE_TOKEN_URL, {
+    const response = await fetch(tokenUrl, {
       method: 'POST',
       signal: controller.signal,
       headers: {
@@ -307,8 +355,8 @@ export async function refreshGeminiToken(accountId?: string): Promise<{
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: creds.refresh_token as string, // Already validated above
-        client_id: GEMINI_CLIENT_ID,
-        client_secret: GEMINI_CLIENT_SECRET,
+        client_id: clientId,
+        client_secret: clientSecret,
       }).toString(),
     });
 

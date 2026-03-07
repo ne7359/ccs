@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { type ChangeEvent, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -12,6 +12,9 @@ import {
   Server,
   FileJson,
   RefreshCw,
+  Copy,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { ProfileEditor } from '@/components/profile-editor';
 import { ProfileCreateDialog } from '@/components/profiles/profile-create-dialog';
@@ -19,18 +22,32 @@ import { OpenRouterBanner } from '@/components/profiles/openrouter-banner';
 import { OpenRouterQuickStart } from '@/components/profiles/openrouter-quick-start';
 import { OpenRouterPromoCard } from '@/components/profiles/openrouter-promo-card';
 import { AlibabaCodingPlanPromoCard } from '@/components/profiles/alibaba-coding-plan-promo-card';
-import { useProfiles, useDeleteProfile } from '@/hooks/use-profiles';
+import {
+  useProfiles,
+  useDeleteProfile,
+  useDiscoverProfileOrphans,
+  useRegisterProfileOrphans,
+  useCopyProfile,
+  useExportProfile,
+  useImportProfile,
+} from '@/hooks/use-profiles';
 import { useOpenRouterModels } from '@/hooks/use-openrouter-models';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
-import type { Profile } from '@/lib/api-client';
+import type { ApiProfileExportBundle, Profile } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { CopyButton } from '@/components/ui/copy-button';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 
 export function ApiPage() {
   const { t } = useTranslation();
   const { data, isLoading, isError, refetch } = useProfiles();
   const deleteMutation = useDeleteProfile();
+  const discoverOrphansMutation = useDiscoverProfileOrphans();
+  const registerOrphansMutation = useRegisterProfileOrphans();
+  const copyProfileMutation = useCopyProfile();
+  const exportProfileMutation = useExportProfile();
+  const importProfileMutation = useImportProfile();
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
@@ -40,6 +57,7 @@ export function ApiPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [editorHasChanges, setEditorHasChanges] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   useOpenRouterModels();
   const profiles = useMemo(() => data?.profiles || [], [data?.profiles]);
@@ -50,11 +68,22 @@ export function ApiPage() {
   const selectedProfileData = selectedProfile
     ? profiles.find((p) => p.name === selectedProfile)
     : null;
+
+  const switchToProfile = (name: string) => {
+    if (editorHasChanges && selectedProfile !== name) {
+      setPendingSwitch(name);
+    } else {
+      setSelectedProfile(name);
+    }
+  };
+
   const handleDelete = (name: string) => {
     deleteMutation.mutate(name, {
       onSuccess: () => {
         if (selectedProfile === name) {
           setSelectedProfile(null);
+          setEditorHasChanges(false);
+          setPendingSwitch(null);
         }
         setDeleteConfirm(null);
       },
@@ -63,17 +92,114 @@ export function ApiPage() {
 
   const handleCreateSuccess = (name: string) => {
     setCreateDialogOpen(false);
-    if (editorHasChanges && selectedProfile !== null) {
-      setPendingSwitch(name);
-    } else {
-      setSelectedProfile(name);
-    }
+    switchToProfile(name);
   };
   const handleProfileSelect = (name: string) => {
-    if (editorHasChanges && selectedProfile !== name) {
-      setPendingSwitch(name);
-    } else {
-      setSelectedProfile(name);
+    switchToProfile(name);
+  };
+
+  const triggerDownload = (filename: string, bundle: ApiProfileExportBundle) => {
+    const content = JSON.stringify(bundle, null, 2) + '\n';
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDiscoverOrphans = async () => {
+    try {
+      const result = await discoverOrphansMutation.mutateAsync();
+      if (result.orphans.length === 0) {
+        toast.success('No orphan profile settings found');
+        return;
+      }
+
+      const validCount = result.orphans.filter((orphan) => orphan.validation.valid).length;
+      const shouldRegister = window.confirm(
+        `Found ${result.orphans.length} orphan settings file(s). Register ${validCount} valid profile(s) now?`
+      );
+
+      if (!shouldRegister) return;
+
+      const registration = await registerOrphansMutation.mutateAsync({});
+      const skippedMessage =
+        registration.skipped.length > 0 ? `, skipped ${registration.skipped.length}` : '';
+      toast.success(`Registered ${registration.registered.length} profile(s)${skippedMessage}`);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
+  const handleCopySelectedProfile = async () => {
+    if (!selectedProfileData) return;
+    const destinationInput = window.prompt(
+      `Copy profile "${selectedProfileData.name}" to new profile name:`,
+      `${selectedProfileData.name}-copy`
+    );
+    if (!destinationInput) return;
+    const destination = destinationInput.trim();
+    if (!destination) {
+      toast.error('Destination profile name cannot be empty');
+      return;
+    }
+
+    try {
+      const result = await copyProfileMutation.mutateAsync({
+        name: selectedProfileData.name,
+        data: { destination },
+      });
+      switchToProfile(destination);
+      if (result.warnings && result.warnings.length > 0) {
+        toast.info(result.warnings.join('\n'));
+      }
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
+  const handleExportSelectedProfile = async () => {
+    if (!selectedProfileData) return;
+    try {
+      const result = await exportProfileMutation.mutateAsync({ name: selectedProfileData.name });
+      triggerDownload(`${selectedProfileData.name}.ccs-profile.json`, result.bundle);
+      if (result.redacted) {
+        toast.info(
+          'Export created with redacted token. Use include-secrets flow in CLI if needed.'
+        );
+      } else {
+        toast.success('Profile export downloaded');
+      }
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
+  const handleImportClick = () => {
+    importFileInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const rawText = await file.text();
+      const bundle = JSON.parse(rawText) as ApiProfileExportBundle;
+      const result = await importProfileMutation.mutateAsync({ bundle });
+      if (result.name) {
+        switchToProfile(result.name);
+      }
+      if (result.warnings && result.warnings.length > 0) {
+        toast.info(result.warnings.join('\n'));
+      }
+    } catch (error) {
+      toast.error((error as Error).message || 'Failed to import profile bundle');
     }
   };
 
@@ -88,15 +214,39 @@ export function ApiPage() {
                 <Server className="w-5 h-5 text-primary" />
                 <h1 className="font-semibold">{t('apiProfiles.title')}</h1>
               </div>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setCreateDialogOpen(true);
-                }}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                {t('apiProfiles.new')}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleDiscoverOrphans()}
+                  disabled={discoverOrphansMutation.isPending || registerOrphansMutation.isPending}
+                  aria-label="Discover orphan profiles"
+                  title="Discover orphan profiles"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${discoverOrphansMutation.isPending ? 'animate-spin' : ''}`}
+                  />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleImportClick}
+                  disabled={importProfileMutation.isPending}
+                  aria-label="Import profile bundle"
+                  title="Import profile bundle"
+                >
+                  <Upload className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setCreateDialogOpen(true);
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  {t('apiProfiles.new')}
+                </Button>
+              </div>
             </div>
 
             <div className="relative">
@@ -204,13 +354,35 @@ export function ApiPage() {
 
         <div className="flex-1 flex flex-col min-w-0">
           {selectedProfileData ? (
-            <ProfileEditor
-              key={selectedProfileData.name}
-              profileName={selectedProfileData.name}
-              profileTarget={selectedProfileData.target}
-              onDelete={() => setDeleteConfirm(selectedProfileData.name)}
-              onHasChangesUpdate={setEditorHasChanges}
-            />
+            <>
+              <div className="px-4 py-2 border-b bg-background flex items-center justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleCopySelectedProfile()}
+                  disabled={copyProfileMutation.isPending}
+                >
+                  <Copy className="w-4 h-4 mr-1" />
+                  Copy
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleExportSelectedProfile()}
+                  disabled={exportProfileMutation.isPending}
+                >
+                  <Download className="w-4 h-4 mr-1" />
+                  Export
+                </Button>
+              </div>
+              <ProfileEditor
+                key={selectedProfileData.name}
+                profileName={selectedProfileData.name}
+                profileTarget={selectedProfileData.target}
+                onDelete={() => setDeleteConfirm(selectedProfileData.name)}
+                onHasChangesUpdate={setEditorHasChanges}
+              />
+            </>
           ) : (
             <OpenRouterQuickStart
               onOpenRouterClick={() => {
@@ -229,6 +401,14 @@ export function ApiPage() {
           )}
         </div>
       </div>
+
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(event) => void handleImportFileChange(event)}
+      />
 
       <ProfileCreateDialog
         open={isCreateDialogOpen}

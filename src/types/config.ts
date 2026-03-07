@@ -100,6 +100,8 @@ export interface ProfileMetadata {
   context_group?: string;
   /** Shared continuity depth when context_mode='shared' */
   continuity_mode?: 'standard' | 'deeper';
+  /** Bare profile: no shared symlinks (commands, skills, agents, settings.json) */
+  bare?: boolean;
 }
 
 export interface ProfilesRegistry {

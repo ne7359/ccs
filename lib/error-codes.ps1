@@ -1,12 +1,14 @@
 # CCS Error Codes
-# Documentation: ../docs/errors/README.md
+# Documentation: https://docs.ccs.kaitran.ca/reference/error-codes
+
+$script:ERROR_CODE_DOCS_BASE_URL = "https://docs.ccs.kaitran.ca/reference/error-codes"
 
 # Configuration Errors (E100-E199)
 $script:E_CONFIG_MISSING = "E101"
 $script:E_CONFIG_INVALID_JSON = "E102"
 $script:E_CONFIG_INVALID_PROFILE = "E103"
 
-# Profile Management Errors (E200-E299)
+# Profile Management Errors (E104-E107)
 $script:E_PROFILE_NOT_FOUND = "E104"
 $script:E_PROFILE_ALREADY_EXISTS = "E105"
 $script:E_PROFILE_CANNOT_DELETE_DEFAULT = "E106"
@@ -37,17 +39,25 @@ $script:E_INVALID_STATE = "E901"
 function Get-ErrorDocUrl {
     param([string]$ErrorCode)
     $LowerCode = $ErrorCode.ToLower()
-    return "https://github.com/kaitranntt/ccs/blob/main/docs/errors/README.md#$LowerCode"
+    return "$script:ERROR_CODE_DOCS_BASE_URL#$LowerCode"
 }
 
 # Get error category from code
 function Get-ErrorCategory {
     param([string]$ErrorCode)
 
+    if (
+        $ErrorCode -eq $script:E_PROFILE_NOT_FOUND -or
+        $ErrorCode -eq $script:E_PROFILE_ALREADY_EXISTS -or
+        $ErrorCode -eq $script:E_PROFILE_CANNOT_DELETE_DEFAULT -or
+        $ErrorCode -eq $script:E_PROFILE_INVALID_NAME
+    ) {
+        return "Profile Management"
+    }
+
     $code = [int]$ErrorCode.Substring(1)
 
     if ($code -ge 100 -and $code -lt 200) { return "Configuration" }
-    elseif ($code -ge 200 -and $code -lt 300) { return "Profile Management" }
     elseif ($code -ge 300 -and $code -lt 400) { return "Claude CLI Detection" }
     elseif ($code -ge 400 -and $code -lt 500) { return "Network/API" }
     elseif ($code -ge 500 -and $code -lt 600) { return "File System" }

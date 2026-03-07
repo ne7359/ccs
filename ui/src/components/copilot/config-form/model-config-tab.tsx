@@ -14,6 +14,35 @@ import { FREE_PRESETS, PAID_PRESETS } from './presets';
 import { FlexibleModelSelector } from './model-selector';
 import type { ModelPreset } from './types';
 
+function formatCompactTokens(value: number): string {
+  if (value >= 1_000_000) {
+    const millions = value / 1_000_000;
+    return millions % 1 === 0 ? `${millions}M` : `${millions.toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    const thousands = value / 1_000;
+    return thousands % 1 === 0 ? `${thousands}K` : `${thousands.toFixed(1)}K`;
+  }
+  return `${value}`;
+}
+
+function formatModelLimits(model?: CopilotModel): string | null {
+  if (!model?.limits) return null;
+
+  const parts: string[] = [];
+  if (model.limits.maxPromptTokens) {
+    parts.push(`prompt ${formatCompactTokens(model.limits.maxPromptTokens)}`);
+  }
+  if (model.limits.maxContextWindowTokens) {
+    parts.push(`context ${formatCompactTokens(model.limits.maxContextWindowTokens)}`);
+  }
+  if (model.limits.maxOutputTokens) {
+    parts.push(`output ${formatCompactTokens(model.limits.maxOutputTokens)}`);
+  }
+
+  return parts.length > 0 ? parts.join(' | ') : null;
+}
+
 interface ModelConfigTabProps {
   currentModel: string;
   opusModel: string;
@@ -41,6 +70,19 @@ export function ModelConfigTab({
   onUpdateSonnetModel,
   onUpdateHaikuModel,
 }: ModelConfigTabProps) {
+  const mappedModelLimits = [
+    { label: 'Default', id: currentModel },
+    { label: 'Opus', id: opusModel || currentModel },
+    { label: 'Sonnet', id: sonnetModel || currentModel },
+    { label: 'Haiku', id: haikuModel || currentModel },
+  ]
+    .map(({ label, id }) => {
+      const model = models.find((entry) => entry.id === id);
+      const limits = formatModelLimits(model);
+      return limits ? { label, id, limits } : null;
+    })
+    .filter((entry): entry is { label: string; id: string; limits: string } => entry !== null);
+
   return (
     <TabsContent
       value="config"
@@ -125,6 +167,26 @@ export function ModelConfigTab({
             <p className="text-xs text-muted-foreground mb-4">
               Configure which models to use for each tier
             </p>
+            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
+              <p className="font-medium">GitHub Copilot controls prompt/context limits upstream.</p>
+              <p className="mt-1">
+                CCS can switch Copilot models, but it cannot increase the provider&apos;s max prompt
+                or context window.
+              </p>
+              {mappedModelLimits.length > 0 ? (
+                <div className="mt-2 space-y-1 text-[11px] font-mono">
+                  {mappedModelLimits.map((entry) => (
+                    <p key={`${entry.label}-${entry.id}`}>
+                      {entry.label}: {entry.id} ({entry.limits})
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-[11px] font-mono">
+                  Start the daemon to inspect live model limits from GitHub Copilot metadata.
+                </p>
+              )}
+            </div>
             <div className="space-y-4">
               <FlexibleModelSelector
                 label="Default Model"

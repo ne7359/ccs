@@ -63,17 +63,12 @@ import {
 } from '@/hooks/use-cliproxy';
 import { useSyncStatus, useExecuteSync } from '@/hooks/use-cliproxy-sync';
 import { cn } from '@/lib/utils';
+import {
+  isCliproxyVersionExperimental,
+  isCliproxyVersionInRange,
+} from '@/lib/cliproxy-version-risk';
 
-/** Client-side semver comparison (true if a > b) */
-function isNewerVersionClient(a: string, b: string): boolean {
-  const aParts = a.replace(/-\d+$/, '').split('.').map(Number);
-  const bParts = b.replace(/-\d+$/, '').split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((aParts[i] || 0) > (bParts[i] || 0)) return true;
-    if ((aParts[i] || 0) < (bParts[i] || 0)) return false;
-  }
-  return false;
-}
+type PendingInstallRisk = 'faulty' | 'experimental';
 
 function formatUptime(startedAt?: string): string {
   if (!startedAt) return '';
@@ -168,9 +163,10 @@ export function ProxyStatusWidget() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<string>('');
 
-  // Confirmation dialog state for unstable versions
+  // Confirmation dialog state for risky versions
   const [showUnstableConfirm, setShowUnstableConfirm] = useState(false);
   const [pendingInstallVersion, setPendingInstallVersion] = useState<string | null>(null);
+  const [pendingInstallRisk, setPendingInstallRisk] = useState<PendingInstallRisk | null>(null);
 
   // Fetch cliproxy_server config for remote mode detection
   const { data: cliproxyConfig } = useQuery<CliproxyServerConfig>({
@@ -208,36 +204,62 @@ export function ProxyStatusWidget() {
   const targetVersion = isUnstable
     ? updateCheck?.maxStableVersion || versionsData?.latestStable
     : updateCheck?.latestVersion;
+  const maxStableVersion =
+    versionsData?.maxStableVersion || updateCheck?.maxStableVersion || '6.6.80';
 
-  // Handle version install (shows confirmation for unstable)
-  const handleInstallVersion = (version: string) => {
+  const faultyRange = versionsData?.faultyRange;
+  const faultyRangeLabel =
+    faultyRange &&
+    `${faultyRange.min.replace(/-\d+$/, '')}-${faultyRange.max.replace(/-\d+$/, '')}`;
+
+  const queueInstallConfirmation = (version: string, risk: PendingInstallRisk) => {
+    setPendingInstallVersion(version);
+    setPendingInstallRisk(risk);
+    setShowUnstableConfirm(true);
+  };
+
+  // Handle version install (shows confirmation for risky versions)
+  const handleInstallVersion = async (version: string) => {
     if (!version) return;
-    const maxStable = versionsData?.maxStableVersion || '6.6.80';
-    const isVersionUnstable = isNewerVersionClient(version, maxStable);
+    const isVersionExperimental = isCliproxyVersionExperimental(version, maxStableVersion);
+    const isVersionFaulty =
+      faultyRange !== undefined &&
+      isCliproxyVersionInRange(version, faultyRange.min, faultyRange.max);
 
-    if (isVersionUnstable) {
-      // Show confirmation dialog for unstable versions
-      setPendingInstallVersion(version);
-      setShowUnstableConfirm(true);
+    if (isVersionFaulty) {
+      queueInstallConfirmation(version, 'faulty');
       return;
     }
 
-    // Install directly if stable
-    installVersion.mutate({ version });
+    if (isVersionExperimental) {
+      queueInstallConfirmation(version, 'experimental');
+      return;
+    }
+
+    try {
+      const result = await installVersion.mutateAsync({ version });
+      if (result.requiresConfirmation) {
+        queueInstallConfirmation(version, result.isFaulty ? 'faulty' : 'experimental');
+      }
+    } catch {
+      // Hook-level onError already reports install failures.
+    }
   };
 
-  // Confirm unstable version install
+  // Confirm risky version install
   const handleConfirmUnstableInstall = () => {
     if (pendingInstallVersion) {
       installVersion.mutate({ version: pendingInstallVersion, force: true });
     }
     setShowUnstableConfirm(false);
     setPendingInstallVersion(null);
+    setPendingInstallRisk(null);
   };
 
   const handleCancelUnstableInstall = () => {
     setShowUnstableConfirm(false);
     setPendingInstallVersion(null);
+    setPendingInstallRisk(null);
   };
 
   // Build remote display info
@@ -372,7 +394,7 @@ export function ProxyStatusWidget() {
                     ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50'
                     : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50'
                 )}
-                onClick={() => handleInstallVersion(targetVersion)}
+                onClick={() => void handleInstallVersion(targetVersion)}
                 title={
                   isUnstable
                     ? t('proxyStatusWidget.clickToDowngrade')
@@ -449,9 +471,16 @@ export function ProxyStatusWidget() {
                 </SelectTrigger>
                 <SelectContent>
                   {versionsData?.versions.slice(0, 20).map((v) => {
-                    const vIsUnstable =
+                    const vIsExperimental =
                       versionsData?.maxStableVersion &&
-                      isNewerVersionClient(v, versionsData.maxStableVersion);
+                      isCliproxyVersionExperimental(v, versionsData.maxStableVersion);
+                    const vIsFaulty =
+                      versionsData?.faultyRange &&
+                      isCliproxyVersionInRange(
+                        v,
+                        versionsData.faultyRange.min,
+                        versionsData.faultyRange.max
+                      );
                     return (
                       <SelectItem key={v} value={v} className="text-xs">
                         <span className="flex items-center gap-2">
@@ -461,7 +490,7 @@ export function ProxyStatusWidget() {
                               {t('proxyStatusWidget.stable')}
                             </span>
                           )}
-                          {vIsUnstable && (
+                          {(vIsFaulty || vIsExperimental) && (
                             <span className="text-amber-600 dark:text-amber-400">⚠</span>
                           )}
                         </span>
@@ -476,7 +505,7 @@ export function ProxyStatusWidget() {
                 variant="outline"
                 size="sm"
                 className="h-8 text-xs gap-1.5 px-3"
-                onClick={() => handleInstallVersion(selectedVersion)}
+                onClick={() => void handleInstallVersion(selectedVersion)}
                 disabled={installVersion.isPending || !selectedVersion}
               >
                 {installVersion.isPending ? (
@@ -491,12 +520,29 @@ export function ProxyStatusWidget() {
             {/* Stability warning for selected version */}
             {selectedVersion &&
               versionsData?.maxStableVersion &&
-              isNewerVersionClient(selectedVersion, versionsData.maxStableVersion) && (
+              isCliproxyVersionExperimental(selectedVersion, versionsData.maxStableVersion) && (
                 <div className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
                   <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
                   <span>
                     {t('proxyStatusWidget.versionsAboveUnstable', {
                       version: versionsData.maxStableVersion,
+                    })}
+                  </span>
+                </div>
+              )}
+
+            {selectedVersion &&
+              versionsData?.faultyRange &&
+              isCliproxyVersionInRange(
+                selectedVersion,
+                versionsData.faultyRange.min,
+                versionsData.faultyRange.max
+              ) && (
+                <div className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>
+                    {t('proxyStatusWidget.versionsKnownIssues', {
+                      version: selectedVersion,
                     })}
                   </span>
                 </div>
@@ -542,21 +588,38 @@ export function ProxyStatusWidget() {
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
-                {t('proxyStatusWidget.installUnstableTitle')}
+                {pendingInstallRisk === 'faulty'
+                  ? t('proxyStatusWidget.installFaultyTitle')
+                  : t('proxyStatusWidget.installUnstableTitle')}
               </AlertDialogTitle>
               <AlertDialogDescription className="space-y-2">
-                <p>
-                  <Trans
-                    i18nKey="proxyStatusWidget.installUnstableDesc"
-                    values={{
-                      version: pendingInstallVersion ?? '',
-                      maxStable: versionsData?.maxStableVersion || '6.6.80',
-                    }}
-                    components={{ strong: <strong /> }}
-                  />
-                </p>
+                {pendingInstallRisk === 'faulty' ? (
+                  <p>
+                    <Trans
+                      i18nKey="proxyStatusWidget.installFaultyDesc"
+                      values={{
+                        version: pendingInstallVersion ?? '',
+                        range: faultyRangeLabel || '',
+                      }}
+                      components={{ strong: <strong /> }}
+                    />
+                  </p>
+                ) : (
+                  <p>
+                    <Trans
+                      i18nKey="proxyStatusWidget.installUnstableDesc"
+                      values={{
+                        version: pendingInstallVersion ?? '',
+                        maxStable: maxStableVersion,
+                      }}
+                      components={{ strong: <strong /> }}
+                    />
+                  </p>
+                )}
                 <p className="text-amber-600 dark:text-amber-400">
-                  {t('proxyStatusWidget.installUnstableWarning')}
+                  {pendingInstallRisk === 'faulty'
+                    ? t('proxyStatusWidget.installFaultyWarning')
+                    : t('proxyStatusWidget.installUnstableWarning')}
                 </p>
                 <p>{t('proxyStatusWidget.installUnstableConfirm')}</p>
               </AlertDialogDescription>

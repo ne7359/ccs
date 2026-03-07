@@ -6,13 +6,22 @@ import {
   cn,
   formatQuotaPercent,
   getCodexQuotaBreakdown,
+  getQuotaFailureInfo,
   getProviderMinQuota,
   getProviderResetTime,
   isClaudeQuotaResult,
   isCodexQuotaResult,
 } from '@/lib/utils';
 import { PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
-import { GripVertical, Loader2, Pause, Play, KeyRound } from 'lucide-react';
+import {
+  GripVertical,
+  Loader2,
+  Pause,
+  Play,
+  KeyRound,
+  AlertTriangle,
+  AlertCircle,
+} from 'lucide-react';
 import { useAccountQuota, QUOTA_SUPPORTED_PROVIDERS } from '@/hooks/use-cliproxy-stats';
 import type { QuotaSupportedProvider } from '@/hooks/use-cliproxy-stats';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -159,6 +168,19 @@ export function AccountCard({
       : [];
   const minQuotaLabel = minQuota !== null ? formatQuotaPercent(minQuota) : null;
   const minQuotaValue = minQuotaLabel !== null ? Number(minQuotaLabel) : null;
+  const failureInfo = getQuotaFailureInfo(quota);
+  const FailureIcon =
+    failureInfo?.label === 'Reauth'
+      ? KeyRound
+      : failureInfo?.tone === 'warning'
+        ? AlertTriangle
+        : AlertCircle;
+  const failureTextClass =
+    failureInfo?.tone === 'warning'
+      ? 'text-amber-600 dark:text-amber-400'
+      : failureInfo?.tone === 'destructive'
+        ? 'text-destructive'
+        : 'text-muted-foreground/70';
 
   // Tier badge (AGY only) - show P for Pro, U for Ultra
   const showTierBadge =
@@ -325,28 +347,35 @@ export function AccountCard({
             <div className="text-[8px] text-muted-foreground/60">
               {t('accountCard.quotaUnavailable')}
             </div>
-          ) : quota?.needsReauth ? (
+          ) : failureInfo ? (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1 text-[8px] text-amber-600 dark:text-amber-400">
-                    <KeyRound className="w-2.5 h-2.5" />
-                    <span>{t('accountCard.reauthNeeded')}</span>
+                  <div className={cn('flex items-center gap-1 text-[8px]', failureTextClass)}>
+                    <FailureIcon className="w-2.5 h-2.5" />
+                    <span>{failureInfo.label}</span>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[200px]">
-                  <p className="text-xs">
-                    {quota.error?.includes('No refresh token')
-                      ? t('accountCard.removeAndReadd')
-                      : quota.error || t('accountCard.autoRefreshFailed')}
-                  </p>
+                <TooltipContent side="top" className="max-w-[220px]">
+                  <div className="space-y-1 text-xs">
+                    <p>{failureInfo.summary}</p>
+                    {failureInfo.actionHint && (
+                      <p className="text-muted-foreground">{failureInfo.actionHint}</p>
+                    )}
+                    {failureInfo.technicalDetail && (
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {failureInfo.technicalDetail}
+                      </p>
+                    )}
+                    {failureInfo.rawDetail && (
+                      <pre className="whitespace-pre-wrap break-all rounded bg-muted/40 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+                        {failureInfo.rawDetail}
+                      </pre>
+                    )}
+                  </div>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-          ) : quota?.error ? (
-            <div className="text-[8px] text-muted-foreground/60 truncate" title={quota.error}>
-              {quota.error.length > 20 ? `${quota.error.slice(0, 18)}...` : quota.error}
-            </div>
           ) : null}
         </div>
       )}

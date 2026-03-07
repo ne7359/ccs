@@ -9,7 +9,7 @@ import { info, warn } from '../utils/ui';
 import { getBinDir, CLIPROXY_DEFAULT_PORT } from './config-generator';
 import { BinaryInfo, BinaryManagerConfig } from './types';
 import { BACKEND_CONFIG, DEFAULT_BACKEND, CLIPROXY_MAX_STABLE_VERSION } from './platform-detector';
-import { isProxyRunning, stopProxy } from './services/proxy-lifecycle-service';
+import { stopProxy } from './services/proxy-lifecycle-service';
 import { waitForPortFree } from '../utils/port-utils';
 import { loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
 import {
@@ -167,19 +167,18 @@ export async function installCliproxyVersion(
   const effectiveBackend = backend ?? getConfiguredBackend();
   const manager = new BinaryManager({ version, verbose, forceVersion: true }, effectiveBackend);
 
-  // Check if proxy is running and stop it first
-  if (isProxyRunning()) {
-    if (verbose) console.log(info('Stopping running CLIProxy before update...'));
-    const result = await stopProxy();
-    if (result.stopped) {
-      // Wait for port to be fully released
-      const portFree = await waitForPortFree(CLIPROXY_DEFAULT_PORT, 5000);
-      if (!portFree && verbose) {
-        console.log(warn('Port did not free up in time, proceeding anyway...'));
-      }
-    } else if (verbose && result.error) {
-      console.log(warn(`Could not stop proxy: ${result.error}`));
+  // Always attempt a best-effort stop first so we also catch untracked proxies
+  // that are running without a session lock.
+  if (verbose) console.log(info('Stopping running CLIProxy before update...'));
+  const result = await stopProxy();
+  if (result.stopped) {
+    // Wait for port to be fully released
+    const portFree = await waitForPortFree(CLIPROXY_DEFAULT_PORT, 5000);
+    if (!portFree && verbose) {
+      console.log(warn('Port did not free up in time, proceeding anyway...'));
     }
+  } else if (verbose && result.error && result.error !== 'No active CLIProxy session found') {
+    console.log(warn(`Could not stop proxy: ${result.error}`));
   }
 
   if (manager.isBinaryInstalled()) {

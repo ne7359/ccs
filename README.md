@@ -152,6 +152,10 @@ ccs ollama    # Local Ollama (no API key needed)
 ccs glm       # GLM (API key)
 ccs km        # Kimi API profile (API key)
 ccs api create --preset alibaba-coding-plan  # Alibaba Coding Plan profile
+ccs api discover --register                  # Auto-register orphan *.settings.json
+ccs api copy glm glm-backup                  # Duplicate profile config + settings
+ccs api export glm --out ./glm.ccs-profile.json  # Export for cross-device transfer
+ccs api import ./glm.ccs-profile.json        # Import exported profile bundle
 ```
 
 ### Droid Alias (`argv[0]` pattern)

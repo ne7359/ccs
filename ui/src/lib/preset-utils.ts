@@ -27,7 +27,7 @@ async function fetchEffectiveApiKey(): Promise<string> {
 
 /**
  * Apply default preset for a provider to its settings
- * Uses the first model's presetMapping or falls back to using defaultModel for all tiers
+ * Uses the catalog default model's preset mapping or falls back to using defaultModel for all tiers
  *
  * @param provider - The provider ID (e.g., 'gemini', 'codex', 'agy')
  * @param port - Optional custom port (defaults to CLIPROXY_DEFAULT_PORT)
@@ -40,9 +40,9 @@ export async function applyDefaultPreset(
   const catalog = MODEL_CATALOGS[provider];
   if (!catalog) return { success: false };
 
-  // Get the first (recommended) model's preset mapping
-  const firstModel = catalog.models[0];
-  const mapping = firstModel?.presetMapping || {
+  const defaultModelEntry =
+    catalog.models.find((model) => model.id === catalog.defaultModel) || catalog.models[0];
+  const mapping = defaultModelEntry?.presetMapping || {
     default: catalog.defaultModel,
     opus: catalog.defaultModel,
     sonnet: catalog.defaultModel,
@@ -72,7 +72,7 @@ export async function applyDefaultPreset(
     });
     return {
       success: res.ok,
-      presetName: firstModel?.name || catalog.defaultModel,
+      presetName: defaultModelEntry?.name || catalog.defaultModel,
     };
   } catch {
     return { success: false };

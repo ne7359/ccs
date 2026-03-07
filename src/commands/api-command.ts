@@ -8,6 +8,8 @@
  * Business logic delegated to src/api/services/.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   initUI,
   header,
@@ -39,6 +41,11 @@ import {
   getPresetById,
   getPresetAliases,
   getPresetIds,
+  discoverApiProfileOrphans,
+  registerApiProfileOrphans,
+  copyApiProfile,
+  exportApiProfile,
+  importApiProfileBundle,
   type ModelMapping,
   type ProviderPreset,
 } from '../api/services';
@@ -138,6 +145,30 @@ function parseTargetValue(value: string): TargetType | null {
     return normalized;
   }
   return null;
+}
+
+function parseOptionalTargetFlag(
+  args: string[],
+  knownFlags: readonly string[]
+): { target?: TargetType; remainingArgs: string[]; errors: string[] } {
+  const extracted = extractOption(args, ['--target'], {
+    allowDashValue: true,
+    knownFlags,
+  });
+  if (!extracted.found) {
+    return { remainingArgs: args, errors: [] };
+  }
+  if (extracted.missingValue || !extracted.value) {
+    return { remainingArgs: extracted.remainingArgs, errors: ['Missing value for --target'] };
+  }
+  const target = parseTargetValue(extracted.value);
+  if (!target) {
+    return {
+      remainingArgs: extracted.remainingArgs,
+      errors: [`Invalid --target value "${extracted.value}". Use: claude or droid`],
+    };
+  }
+  return { target, remainingArgs: extracted.remainingArgs, errors: [] };
 }
 
 /** Parse command line arguments for api commands */
@@ -361,7 +392,7 @@ async function handleCreate(args: string[]): Promise<void> {
   }
 
   // Step 4: Model configuration (use preset default if available)
-  const defaultModel = preset?.defaultModel || 'claude-sonnet-4-5-20250929';
+  const defaultModel = preset?.defaultModel || 'claude-sonnet-4-6';
   let model = parsedArgs.model || openRouterModel || preset?.defaultModel;
   if (!model && !parsedArgs.yes && !preset) {
     model = await InteractivePrompt.input('Default model (ANTHROPIC_MODEL)', {
@@ -622,6 +653,246 @@ async function handleRemove(args: string[]): Promise<void> {
   console.log('');
 }
 
+/** Handle 'ccs api discover' command */
+async function handleDiscover(args: string[]): Promise<void> {
+  await initUI();
+  const register = hasAnyFlag(args, ['--register']);
+  const jsonOutput = hasAnyFlag(args, ['--json']);
+  const force = hasAnyFlag(args, ['--force']);
+
+  const targetParsed = parseOptionalTargetFlag(args, [...API_KNOWN_FLAGS, '--register', '--json']);
+  if (targetParsed.errors.length > 0) {
+    targetParsed.errors.forEach((errorMessage) => console.log(fail(errorMessage)));
+    process.exit(1);
+  }
+
+  const result = discoverApiProfileOrphans();
+  if (jsonOutput) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(header('Discover Orphan API Profiles'));
+  console.log('');
+
+  if (result.orphans.length === 0) {
+    console.log(ok('No orphan settings files found.'));
+    console.log('');
+    return;
+  }
+
+  const rows = result.orphans.map((orphan) => {
+    const status = orphan.validation.valid ? color('[OK]', 'success') : color('[X]', 'error');
+    const issueSummary =
+      orphan.validation.issues.length > 0
+        ? orphan.validation.issues[0].message
+        : 'Ready to register';
+    return [orphan.name, status, issueSummary];
+  });
+
+  console.log(
+    table(rows, {
+      head: ['Profile', 'Status', 'Validation'],
+      colWidths: [20, 10, 64],
+    })
+  );
+  console.log('');
+
+  if (!register) {
+    console.log(info('To register discovered profiles:'));
+    console.log(`  ${color('ccs api discover --register', 'command')}`);
+    console.log('');
+    return;
+  }
+
+  const registration = registerApiProfileOrphans({
+    target: targetParsed.target || 'claude',
+    force,
+  });
+  console.log(ok(`Registered: ${registration.registered.length}`));
+  if (registration.skipped.length > 0) {
+    console.log(warn(`Skipped: ${registration.skipped.length}`));
+    registration.skipped.forEach((item) => {
+      console.log(`  - ${item.name}: ${item.reason}`);
+    });
+  }
+  console.log('');
+}
+
+/** Handle 'ccs api copy' command */
+async function handleCopy(args: string[]): Promise<void> {
+  await initUI();
+  const parsedArgs = parseApiCommandArgs(args);
+  if (parsedArgs.errors.length > 0) {
+    parsedArgs.errors.forEach((errorMessage) => console.log(fail(errorMessage)));
+    process.exit(1);
+  }
+
+  const positionals = extractPositionalArgs(args);
+  const source = positionals[0];
+  let destination = positionals[1];
+
+  if (!source) {
+    console.log(fail('Source profile is required. Usage: ccs api copy <source> <destination>'));
+    process.exit(1);
+  }
+
+  if (!destination) {
+    destination = await InteractivePrompt.input('Destination profile name');
+  }
+
+  if (!parsedArgs.yes) {
+    const confirmed = await InteractivePrompt.confirm(
+      `Copy profile "${source}" to "${destination}"?`,
+      { default: true }
+    );
+    if (!confirmed) {
+      console.log(info('Cancelled'));
+      process.exit(0);
+    }
+  }
+
+  const result = copyApiProfile(source, destination, {
+    target: parsedArgs.target,
+    force: parsedArgs.force,
+  });
+
+  if (!result.success) {
+    console.log(fail(result.error || 'Failed to copy profile'));
+    process.exit(1);
+  }
+
+  console.log(ok(`Profile copied: ${source} -> ${destination}`));
+  if (result.warnings && result.warnings.length > 0) {
+    result.warnings.forEach((warningMessage) => console.log(warn(warningMessage)));
+  }
+  console.log('');
+}
+
+/** Handle 'ccs api export' command */
+async function handleExport(args: string[]): Promise<void> {
+  await initUI();
+  const includeSecrets = hasAnyFlag(args, ['--include-secrets']);
+
+  const outExtracted = extractOption(args, ['--out'], {
+    allowDashValue: true,
+    knownFlags: [...API_KNOWN_FLAGS, '--out', '--include-secrets'],
+  });
+  if (outExtracted.found && (outExtracted.missingValue || !outExtracted.value)) {
+    console.log(fail('Missing value for --out'));
+    process.exit(1);
+  }
+  const outPath = outExtracted.value;
+  const positionals = extractPositionalArgs(outExtracted.remainingArgs);
+  const name = positionals[0];
+
+  if (!name) {
+    console.log(fail('Profile name is required. Usage: ccs api export <name> [--out <file>]'));
+    process.exit(1);
+  }
+
+  const result = exportApiProfile(name, includeSecrets);
+  if (!result.success || !result.bundle) {
+    console.log(fail(result.error || 'Failed to export profile'));
+    process.exit(1);
+  }
+
+  const resolvedOutputPath = path.resolve(outPath || `${name}.ccs-profile.json`);
+  fs.mkdirSync(path.dirname(resolvedOutputPath), { recursive: true });
+  fs.writeFileSync(resolvedOutputPath, JSON.stringify(result.bundle, null, 2) + '\n', 'utf8');
+
+  console.log(ok(`Profile exported to: ${resolvedOutputPath}`));
+  if (result.redacted) {
+    console.log(warn('Token was redacted in export. Use --include-secrets to include it.'));
+  }
+  console.log('');
+}
+
+/** Handle 'ccs api import' command */
+async function handleImport(args: string[]): Promise<void> {
+  await initUI();
+  const force = hasAnyFlag(args, ['--force']);
+  const yes = hasAnyFlag(args, ['--yes', '-y']);
+
+  const nameExtracted = extractOption(args, ['--name'], {
+    allowDashValue: true,
+    knownFlags: [...API_KNOWN_FLAGS, '--name'],
+  });
+  if (nameExtracted.found && (nameExtracted.missingValue || !nameExtracted.value)) {
+    console.log(fail('Missing value for --name'));
+    process.exit(1);
+  }
+
+  const targetParsed = parseOptionalTargetFlag(nameExtracted.remainingArgs, [
+    ...API_KNOWN_FLAGS,
+    '--name',
+  ]);
+  if (targetParsed.errors.length > 0) {
+    targetParsed.errors.forEach((errorMessage) => console.log(fail(errorMessage)));
+    process.exit(1);
+  }
+
+  const positionals = extractPositionalArgs(targetParsed.remainingArgs);
+  const importPath = positionals[0];
+  if (!importPath) {
+    console.log(
+      fail('Import file path is required. Usage: ccs api import <file> [--name <new-name>]')
+    );
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(importPath)) {
+    console.log(fail(`File not found: ${importPath}`));
+    process.exit(1);
+  }
+
+  const raw = fs.readFileSync(importPath, 'utf8');
+  let bundle: unknown;
+  try {
+    bundle = JSON.parse(raw);
+  } catch (error) {
+    console.log(fail(`Invalid JSON file: ${(error as Error).message}`));
+    process.exit(1);
+  }
+
+  if (!yes) {
+    const confirmed = await InteractivePrompt.confirm(
+      `Import profile bundle from "${importPath}"?`,
+      {
+        default: true,
+      }
+    );
+    if (!confirmed) {
+      console.log(info('Cancelled'));
+      process.exit(0);
+    }
+  }
+
+  const result = importApiProfileBundle(bundle, {
+    name: nameExtracted.value,
+    target: targetParsed.target,
+    force,
+  });
+
+  if (!result.success) {
+    console.log(fail(result.error || 'Failed to import profile'));
+    if (result.validation?.issues?.length) {
+      console.log('');
+      result.validation.issues.forEach((issue) => {
+        const indicator = issue.level === 'error' ? color('[X]', 'error') : color('[!]', 'warning');
+        console.log(`${indicator} ${issue.message}`);
+      });
+    }
+    process.exit(1);
+  }
+
+  console.log(ok(`Profile imported: ${result.name}`));
+  if (result.warnings && result.warnings.length > 0) {
+    result.warnings.forEach((warningMessage) => console.log(warn(warningMessage)));
+  }
+  console.log('');
+}
+
 /** Show help for api commands */
 async function showHelp(): Promise<void> {
   await initUI();
@@ -639,6 +910,16 @@ async function showHelp(): Promise<void> {
   console.log(subheader('Commands'));
   console.log(`  ${color('create [name]', 'command')}    Create new API profile (interactive)`);
   console.log(`  ${color('list', 'command')}             List all API profiles`);
+  console.log(
+    `  ${color('discover', 'command')}         Discover orphan *.settings.json and register`
+  );
+  console.log(`  ${color('copy <src> <dest>', 'command')} Duplicate API profile settings + config`);
+  console.log(
+    `  ${color('export <name>', 'command')}    Export profile bundle for cross-device transfer`
+  );
+  console.log(
+    `  ${color('import <file>', 'command')}    Import profile bundle and register profile`
+  );
   console.log(`  ${color('remove <name>', 'command')}    Remove an API profile`);
   console.log('');
   console.log(subheader('Options'));
@@ -651,7 +932,14 @@ async function showHelp(): Promise<void> {
   console.log(
     `  ${color('--target <cli>', 'command')}       Default target: claude or droid (create)`
   );
-  console.log(`  ${color('--force', 'command')}              Overwrite existing (create)`);
+  console.log(`  ${color('--register', 'command')}           Register discovered orphan settings`);
+  console.log(`  ${color('--json', 'command')}               JSON output for discover command`);
+  console.log(`  ${color('--out <file>', 'command')}         Export bundle output path`);
+  console.log(`  ${color('--include-secrets', 'command')}    Include token in export bundle`);
+  console.log(`  ${color('--name <name>', 'command')}        Override profile name during import`);
+  console.log(
+    `  ${color('--force', 'command')}              Overwrite existing or bypass validation (create/discover/copy/import)`
+  );
   console.log(`  ${color('--yes, -y', 'command')}            Skip confirmation prompts`);
   console.log('');
   console.log(subheader('Provider Presets'));
@@ -682,6 +970,17 @@ async function showHelp(): Promise<void> {
   console.log(`  ${dim('# Remove API profile')}`);
   console.log(`  ${color('ccs api remove myapi', 'command')}`);
   console.log('');
+  console.log(`  ${dim('# Discover and register orphan settings files')}`);
+  console.log(`  ${color('ccs api discover', 'command')}`);
+  console.log(`  ${color('ccs api discover --register', 'command')}`);
+  console.log('');
+  console.log(`  ${dim('# Duplicate an existing API profile')}`);
+  console.log(`  ${color('ccs api copy glm glm-backup', 'command')}`);
+  console.log('');
+  console.log(`  ${dim('# Export and import across devices')}`);
+  console.log(`  ${color('ccs api export glm --out ./glm.ccs-profile.json', 'command')}`);
+  console.log(`  ${color('ccs api import ./glm.ccs-profile.json', 'command')}`);
+  console.log('');
   console.log(`  ${dim('# Show all API profiles')}`);
   console.log(`  ${color('ccs api list', 'command')}`);
   console.log('');
@@ -702,6 +1001,18 @@ export async function handleApiCommand(args: string[]): Promise<void> {
       break;
     case 'list':
       await handleList();
+      break;
+    case 'discover':
+      await handleDiscover(args.slice(1));
+      break;
+    case 'copy':
+      await handleCopy(args.slice(1));
+      break;
+    case 'export':
+      await handleExport(args.slice(1));
+      break;
+    case 'import':
+      await handleImport(args.slice(1));
       break;
     case 'remove':
     case 'delete':

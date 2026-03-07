@@ -21,6 +21,7 @@ export const CLAUDE_POLICY_LIMITS_URL = 'https://api.anthropic.com/api/claude_co
 const CLAUDE_QUOTA_TIMEOUT_MS = 10000;
 const CLAUDE_QUOTA_MAX_ATTEMPTS = 2;
 const CLAUDE_USER_AGENT = 'ccs-cli/claude-quota';
+const CLAUDE_OAUTH_UNSUPPORTED_MESSAGE = 'oauth authentication is currently not supported';
 
 interface ClaudeAuthData {
   accessToken: string;
@@ -63,6 +64,37 @@ function extractExpiry(data: Record<string, unknown>): string | null {
 
 function isAuthExpired(expiry: string | null): boolean {
   return expiry ? isTokenExpired(expiry) : false;
+}
+
+function extractErrorMessage(payload: unknown): string | null {
+  const root = toObject(payload);
+  if (!root) return null;
+
+  const direct = asString(root['message']);
+  if (direct) return direct;
+
+  const nested = toObject(root['error']);
+  if (!nested) return null;
+  return asString(nested['message']);
+}
+
+async function readResponseErrorMessage(response: Response): Promise<string | null> {
+  try {
+    const body = await response.text();
+    if (!body || body.trim().length === 0) return null;
+
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      const extracted = extractErrorMessage(parsed);
+      if (extracted) return extracted;
+    } catch {
+      // fall through to plain-text fallback
+    }
+
+    return body.trim();
+  } catch {
+    return null;
+  }
 }
 
 async function readJsonFile(filePath: string): Promise<Record<string, unknown> | null> {
@@ -161,6 +193,16 @@ function buildEmptyResult(
   };
 }
 
+function buildPolicyUnavailableResult(accountId: string): ClaudeQuotaResult {
+  return {
+    success: true,
+    windows: [],
+    coreUsage: { fiveHour: null, weekly: null },
+    lastUpdated: Date.now(),
+    accountId,
+  };
+}
+
 /**
  * Fetch quota for a single Claude account.
  */
@@ -204,18 +246,22 @@ export async function fetchClaudeQuota(
       }
 
       if (response.status === 401) {
+        const errorMessage = await readResponseErrorMessage(response);
+        if (errorMessage && errorMessage.toLowerCase().includes(CLAUDE_OAUTH_UNSUPPORTED_MESSAGE)) {
+          if (verbose) {
+            console.error(
+              '[i] Claude policy limits endpoint does not support OAuth tokens; treating quota as unavailable'
+            );
+          }
+          return buildPolicyUnavailableResult(accountId);
+        }
+
         return buildEmptyResult('Authentication required for policy limits', accountId, true);
       }
 
       if (response.status === 404) {
-        // Some accounts may not expose policy limits; treat as empty but successful.
-        return {
-          success: true,
-          windows: [],
-          coreUsage: { fiveHour: null, weekly: null },
-          lastUpdated: Date.now(),
-          accountId,
-        };
+        // Some accounts may not expose policy limits; treat as unavailable but successful.
+        return buildPolicyUnavailableResult(accountId);
       }
 
       if (response.status === 403) {

@@ -9,6 +9,7 @@ import type {
   GhcpQuotaResult,
   QuotaResult,
 } from './api-client';
+import i18n from './i18n';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -717,6 +718,171 @@ export function isGhcpQuotaResult(quota: UnifiedQuotaResult): quota is GhcpQuota
 }
 
 // ==================== Unified Quota Helpers ====================
+
+export interface QuotaFailureInfo {
+  label: string;
+  summary: string;
+  actionHint: string | null;
+  technicalDetail: string | null;
+  rawDetail: string | null;
+  tone: 'warning' | 'muted' | 'destructive';
+}
+
+function buildQuotaTechnicalDetail(quota: UnifiedQuotaResult): string | null {
+  const details: string[] = [];
+  if (typeof quota.httpStatus === 'number') {
+    details.push(`HTTP ${quota.httpStatus}`);
+  }
+  if (typeof quota.errorCode === 'string' && quota.errorCode.trim()) {
+    details.push(quota.errorCode.trim());
+  }
+  return details.length > 0 ? details.join(' | ') : null;
+}
+
+function buildQuotaRawDetail(
+  quota: UnifiedQuotaResult,
+  summary: string,
+  technicalDetail: string | null
+): string | null {
+  const rawDetail = quota.errorDetail?.trim() || null;
+  if (!rawDetail) return null;
+
+  const normalizedRawDetail = rawDetail.toLowerCase();
+  if (normalizedRawDetail === summary.toLowerCase()) {
+    return null;
+  }
+  if (technicalDetail && normalizedRawDetail === technicalDetail.toLowerCase()) {
+    return null;
+  }
+
+  return rawDetail;
+}
+
+export function getQuotaFailureInfo(
+  quota: UnifiedQuotaResult | null | undefined
+): QuotaFailureInfo | null {
+  if (!quota || quota.success) {
+    return null;
+  }
+
+  const summary = quota.error?.trim() || 'Quota information unavailable';
+  const actionHint = quota.actionHint?.trim() || null;
+  const errorCode = quota.errorCode?.trim().toLowerCase() || '';
+  const technicalDetail = buildQuotaTechnicalDetail(quota);
+  const rawDetail = buildQuotaRawDetail(quota, summary, technicalDetail);
+  const lowerSummary = summary.toLowerCase();
+
+  if (
+    quota.needsReauth ||
+    errorCode === 'token_expired' ||
+    errorCode === 'reauth_required' ||
+    lowerSummary.includes('token expired') ||
+    lowerSummary.includes('re-authenticate') ||
+    lowerSummary.includes('reauth') ||
+    lowerSummary.includes('expired or invalid')
+  ) {
+    return {
+      label: i18n.t('accountCard.failureLabelReauth'),
+      summary,
+      actionHint: actionHint || i18n.t('accountCard.failureHintReauth'),
+      technicalDetail,
+      rawDetail,
+      tone: 'warning',
+    };
+  }
+
+  if (
+    errorCode === 'deactivated_workspace' ||
+    quota.httpStatus === 402 ||
+    lowerSummary.includes('workspace deactivated') ||
+    lowerSummary.includes('payment or workspace access required')
+  ) {
+    return {
+      label: i18n.t('accountCard.failureLabelWorkspace'),
+      summary,
+      actionHint: actionHint || i18n.t('accountCard.failureHintWorkspace'),
+      technicalDetail,
+      rawDetail,
+      tone: 'warning',
+    };
+  }
+
+  if (
+    quota.isForbidden ||
+    quota.httpStatus === 403 ||
+    errorCode === 'quota_api_forbidden' ||
+    lowerSummary.includes('forbidden')
+  ) {
+    return {
+      label: i18n.t('accountCard.failureLabelNoAccess'),
+      summary,
+      actionHint: actionHint || i18n.t('accountCard.failureHintNoAccess'),
+      technicalDetail,
+      rawDetail,
+      tone: 'muted',
+    };
+  }
+
+  if (
+    quota.httpStatus === 429 ||
+    errorCode === 'rate_limited' ||
+    lowerSummary.includes('rate limited')
+  ) {
+    return {
+      label: i18n.t('accountCard.failureLabelRetry'),
+      summary,
+      actionHint: actionHint || i18n.t('accountCard.failureHintRetry'),
+      technicalDetail,
+      rawDetail,
+      tone: 'warning',
+    };
+  }
+
+  if (
+    errorCode === 'auth_file_missing' ||
+    errorCode === 'missing_account_id' ||
+    lowerSummary.includes('auth file not found') ||
+    lowerSummary.includes('missing chatgpt-account-id')
+  ) {
+    return {
+      label: i18n.t('accountCard.failureLabelReconnect'),
+      summary,
+      actionHint: actionHint || i18n.t('accountCard.failureHintReconnect'),
+      technicalDetail,
+      rawDetail,
+      tone: 'muted',
+    };
+  }
+
+  if (
+    quota.retryable ||
+    errorCode === 'network_timeout' ||
+    errorCode === 'network_error' ||
+    errorCode === 'provider_unavailable' ||
+    lowerSummary.includes('timeout') ||
+    lowerSummary.includes('network') ||
+    lowerSummary.includes('fetch failed') ||
+    lowerSummary.includes('service unavailable')
+  ) {
+    return {
+      label: i18n.t('accountCard.failureLabelTemporary'),
+      summary,
+      actionHint: actionHint || i18n.t('accountCard.failureHintTemporary'),
+      technicalDetail,
+      rawDetail,
+      tone: 'warning',
+    };
+  }
+
+  return {
+    label: i18n.t('accountCard.failureLabelUnavailable'),
+    summary,
+    actionHint,
+    technicalDetail,
+    rawDetail,
+    tone: 'muted',
+  };
+}
 
 /**
  * Get minimum quota percentage for any provider

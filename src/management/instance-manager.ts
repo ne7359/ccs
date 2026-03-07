@@ -11,7 +11,13 @@ import * as path from 'path';
 import SharedManager from './shared-manager';
 import ProfileContextSyncLock from './profile-context-sync-lock';
 import { AccountContextPolicy, DEFAULT_ACCOUNT_CONTEXT_MODE } from '../auth/account-context';
-import { getCcsDir } from '../utils/config-manager';
+import { getCcsDir, getCcsHome } from '../utils/config-manager';
+
+/** Options for instance creation */
+export interface InstanceOptions {
+  /** Skip shared symlinks (commands, skills, agents, settings.json) */
+  bare?: boolean;
+}
 
 /**
  * Instance Manager Class
@@ -32,7 +38,8 @@ class InstanceManager {
    */
   async ensureInstance(
     profileName: string,
-    contextPolicy: AccountContextPolicy = { mode: DEFAULT_ACCOUNT_CONTEXT_MODE }
+    contextPolicy: AccountContextPolicy = { mode: DEFAULT_ACCOUNT_CONTEXT_MODE },
+    options: InstanceOptions = {}
   ): Promise<string> {
     const instancePath = this.getInstancePath(profileName);
 
@@ -40,7 +47,7 @@ class InstanceManager {
     await this.contextSyncLock.withLock(profileName, async () => {
       // Lazy initialization
       if (!fs.existsSync(instancePath)) {
-        this.initializeInstance(profileName, instancePath);
+        this.initializeInstance(profileName, instancePath, options);
       }
 
       // Validate structure (auto-fix missing dirs)
@@ -50,6 +57,11 @@ class InstanceManager {
       await this.sharedManager.syncProjectContext(instancePath, contextPolicy);
       await this.sharedManager.syncAdvancedContinuityArtifacts(instancePath, contextPolicy);
     });
+
+    // Sync MCP servers from global ~/.claude.json (unless bare)
+    if (!options.bare) {
+      this.syncMcpServers(instancePath);
+    }
 
     return instancePath;
   }
@@ -65,7 +77,11 @@ class InstanceManager {
   /**
    * Initialize new instance directory
    */
-  private initializeInstance(profileName: string, instancePath: string): void {
+  private initializeInstance(
+    profileName: string,
+    instancePath: string,
+    options: InstanceOptions = {}
+  ): void {
     try {
       // Create base directory
       fs.mkdirSync(instancePath, { recursive: true, mode: 0o700 });
@@ -88,11 +104,10 @@ class InstanceManager {
         }
       });
 
-      // Symlink shared directories (Phase 1: commands, skills)
-      this.sharedManager.linkSharedDirectories(instancePath);
-
-      // Copy global configs if exist (settings.json only)
-      this.copyGlobalConfigs(instancePath);
+      // Bare profiles skip shared symlinks (commands, skills, agents, settings.json)
+      if (!options.bare) {
+        this.sharedManager.linkSharedDirectories(instancePath);
+      }
     } catch (error) {
       throw new Error(
         `Failed to initialize instance for ${profileName}: ${(error as Error).message}`
@@ -163,37 +178,61 @@ class InstanceManager {
   }
 
   /**
-   * Copy global configs to instance (optional)
+   * Sync MCP servers from global ~/.claude.json to instance .claude.json.
+   * Selectively copies only mcpServers key (not OAuth sessions or caches).
    */
-  private copyGlobalConfigs(_instancePath: string): void {
-    // No longer needed - settings.json now symlinked via SharedManager
-    // Keeping method for backward compatibility (empty implementation)
-    // Can be removed in future major version
-  }
+  syncMcpServers(instancePath: string): boolean {
+    const homeDir = getCcsHome();
+    const globalClaudeJson = path.join(homeDir, '.claude.json');
 
-  /**
-   * Copy directory recursively - Currently unused
-   */
-  /*
-  private copyDirectory(src: string, dest: string): void {
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(dest, { recursive: true, mode: 0o700 });
+    if (!fs.existsSync(globalClaudeJson)) {
+      return false;
     }
 
-    const entries = fs.readdirSync(src, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name);
-      const destPath = path.join(dest, entry.name);
-
-      if (entry.isDirectory()) {
-        this.copyDirectory(srcPath, destPath);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
+    try {
+      const globalContent = JSON.parse(fs.readFileSync(globalClaudeJson, 'utf8'));
+      const rawMcpServers = globalContent.mcpServers;
+      if (
+        !rawMcpServers ||
+        typeof rawMcpServers !== 'object' ||
+        Array.isArray(rawMcpServers) ||
+        Object.keys(rawMcpServers).length === 0
+      ) {
+        return false;
       }
+
+      const mcpServers = rawMcpServers as Record<string, unknown>;
+      const instanceClaudeJson = path.join(instancePath, '.claude.json');
+      let instanceContent: Record<string, unknown> = {};
+
+      if (fs.existsSync(instanceClaudeJson)) {
+        try {
+          instanceContent = JSON.parse(fs.readFileSync(instanceClaudeJson, 'utf8'));
+        } catch {
+          // Corrupted file, start fresh
+          instanceContent = {};
+        }
+      }
+
+      // Merge: global MCP servers as base, instance-specific overrides on top
+      const rawExistingMcp = instanceContent.mcpServers;
+      const existingMcp =
+        rawExistingMcp && typeof rawExistingMcp === 'object' && !Array.isArray(rawExistingMcp)
+          ? (rawExistingMcp as Record<string, unknown>)
+          : {};
+      instanceContent.mcpServers = { ...mcpServers, ...existingMcp };
+
+      fs.writeFileSync(instanceClaudeJson, JSON.stringify(instanceContent, null, 2), {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+      return true;
+    } catch (error) {
+      // Best-effort: don't fail instance creation if MCP sync fails
+      console.warn(`[!] MCP sync skipped: ${(error as Error).message}`);
+      return false;
     }
   }
-  */
 
   /**
    * Sanitize profile name for filesystem

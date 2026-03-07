@@ -61,7 +61,7 @@ describe('resolveProfileContinuityInheritance', () => {
       mode: 'shared',
       group: 'team-alpha',
       continuityMode: 'deeper',
-    });
+    }, { bare: false });
   });
 
   it('supports legacy continuity_inherit_from_account fallback', async () => {
@@ -255,7 +255,46 @@ describe('resolveProfileContinuityInheritance', () => {
     });
     expect(ensureInstanceSpy).toHaveBeenCalledWith('pro', {
       mode: 'isolated',
+    }, { bare: false });
+  });
+
+  it('propagates bare source-account mode when inheriting continuity', async () => {
+    spyOn(configLoader, 'loadOrCreateUnifiedConfig').mockReturnValue({
+      version: 8,
+      continuity: {
+        inherit_from_account: {
+          glm: 'pro',
+        },
+      },
+    } as ReturnType<typeof configLoader.loadOrCreateUnifiedConfig>);
+
+    const ensureInstanceSpy = spyOn(InstanceManager.prototype, 'ensureInstance').mockResolvedValue(
+      '/tmp/.ccs/instances/pro'
+    );
+    spyOn(ProfileRegistry.prototype, 'getAllProfilesMerged').mockReturnValue({
+      pro: {
+        type: 'account',
+        created: '2026-03-01T00:00:00.000Z',
+        last_used: null,
+        bare: true,
+      },
     });
+
+    const result = await resolveProfileContinuityInheritance({
+      profileName: 'glm',
+      profileType: 'settings',
+      target: 'claude',
+    });
+
+    expect(result).toEqual({
+      sourceAccount: 'pro',
+      claudeConfigDir: '/tmp/.ccs/instances/pro',
+    });
+    expect(ensureInstanceSpy).toHaveBeenCalledWith(
+      'pro',
+      { mode: 'isolated' },
+      { bare: true }
+    );
   });
 
   it('does not apply km settings alias mapping to kimi cliproxy profile', async () => {

@@ -22,7 +22,9 @@ import {
   extractProviderFromPathname,
   getDeniedModelIdReasonForProvider,
   normalizeModelIdForRouting,
+  stripCodexEffortSuffix,
 } from './model-id-normalizer';
+import { getModelMaxLevel } from './model-catalog';
 import { getCcsDir } from '../utils/config-manager';
 
 export interface ToolSanitizationProxyConfig {
@@ -42,6 +44,107 @@ export interface ToolSanitizationProxyConfig {
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const GEMINI_UNSUPPORTED_TOOL_FIELDS = new Set([
+  'strict',
+  'input_examples',
+  'type',
+  'cache_control',
+  'defer_loading',
+]);
+
+const CODEX_UNSUPPORTED_TOOL_FIELDS = new Set(['cache_control']);
+const EXTENDED_CONTEXT_SUFFIX_REGEX = /\[1m\]$/i;
+const LEGACY_CODEX_MODEL_ID_REGEX = /^gpt-5(?:\.\d+)?-codex(?:-(?:mini|max))?$/i;
+
+function canonicalizeCodexModelId(model: string | undefined): string | null {
+  const normalizedModel = model?.trim().toLowerCase();
+  if (!normalizedModel) {
+    return null;
+  }
+
+  const withoutExtendedContext = normalizedModel.replace(EXTENDED_CONTEXT_SUFFIX_REGEX, '').trim();
+  return stripCodexEffortSuffix(withoutExtendedContext);
+}
+
+function isKnownCodexModelId(model: string | undefined): boolean {
+  const normalizedModel = canonicalizeCodexModelId(model);
+  if (!normalizedModel) {
+    return false;
+  }
+
+  // Root-routed requests can carry Codex model IDs that CCS uses outside the
+  // small interactive catalog (for example image analysis and Cursor defaults).
+  return (
+    LEGACY_CODEX_MODEL_ID_REGEX.test(normalizedModel) ||
+    getModelMaxLevel('codex', normalizedModel) !== undefined
+  );
+}
+
+function getUnsupportedToolFields(
+  providerFromPath: string | null,
+  model: string | undefined
+): ReadonlySet<string> | null {
+  const normalizedProvider = providerFromPath?.trim().toLowerCase() ?? null;
+  const normalizedModel = model?.trim().toLowerCase();
+
+  if (
+    normalizedProvider === 'gemini' ||
+    normalizedProvider === 'gemini-cli' ||
+    (normalizedProvider === null && normalizedModel?.startsWith('gemini-'))
+  ) {
+    return GEMINI_UNSUPPORTED_TOOL_FIELDS;
+  }
+
+  if (
+    normalizedProvider === 'codex' ||
+    (normalizedProvider === null && isKnownCodexModelId(model))
+  ) {
+    return CODEX_UNSUPPORTED_TOOL_FIELDS;
+  }
+
+  return null;
+}
+
+function stripUnsupportedToolFields(
+  tools: Tool[],
+  unsupportedFields: ReadonlySet<string>
+): {
+  tools: Tool[];
+  removedByTool: Array<{ name: string; removed: string[] }>;
+  totalRemoved: number;
+} {
+  const removedByTool: Array<{ name: string; removed: string[] }> = [];
+  let totalRemoved = 0;
+
+  const sanitizedTools = tools.map((tool) => {
+    const sanitizedTool = { ...tool };
+    const removed: string[] = [];
+
+    for (const field of unsupportedFields) {
+      if (field in sanitizedTool) {
+        delete sanitizedTool[field];
+        removed.push(field);
+      }
+    }
+
+    if (removed.length > 0) {
+      removedByTool.push({
+        name: tool.name,
+        removed,
+      });
+      totalRemoved += removed.length;
+    }
+
+    return sanitizedTool;
+  });
+
+  return {
+    tools: sanitizedTools,
+    removedByTool,
+    totalRemoved,
+  };
 }
 
 export class ToolSanitizationProxy {
@@ -184,6 +287,7 @@ export class ToolSanitizationProxy {
     const requestPath = req.url || '/';
     const upstreamBase = new URL(this.config.upstreamBaseUrl);
     const fullUpstreamUrl = new URL(requestPath, upstreamBase);
+    const providerFromPath = extractProviderFromPathname(fullUpstreamUrl.pathname);
 
     this.log(`${method} ${requestPath} → ${fullUpstreamUrl.href}`);
 
@@ -214,7 +318,6 @@ export class ToolSanitizationProxy {
       // Normalize dotted Claude model IDs for provider-compatible routing.
       let modifiedBody = parsed;
       if (isRecord(modifiedBody) && typeof modifiedBody.model === 'string') {
-        const providerFromPath = extractProviderFromPathname(fullUpstreamUrl.pathname);
         const deniedReason = getDeniedModelIdReasonForProvider(
           modifiedBody.model,
           providerFromPath
@@ -253,8 +356,32 @@ export class ToolSanitizationProxy {
           );
         }
 
+        let rewrittenTools = schemaResult.tools as Tool[];
+        const unsupportedToolFields =
+          isRecord(modifiedBody) && typeof modifiedBody.model === 'string'
+            ? getUnsupportedToolFields(providerFromPath, modifiedBody.model)
+            : getUnsupportedToolFields(providerFromPath, undefined);
+
+        if (unsupportedToolFields) {
+          const fieldResult = stripUnsupportedToolFields(rewrittenTools, unsupportedToolFields);
+
+          if (fieldResult.totalRemoved > 0) {
+            for (const entry of fieldResult.removedByTool) {
+              this.writeLog(
+                'warn',
+                `[tool-sanitization-proxy] Tool fields stripped for "${entry.name}" (${providerFromPath ?? 'model-routed'}): ${entry.removed.join(', ')}`
+              );
+            }
+            this.log(
+              `Stripped ${fieldResult.totalRemoved} unsupported top-level tool field(s) across ${fieldResult.removedByTool.length} tool(s)`
+            );
+          }
+
+          rewrittenTools = fieldResult.tools;
+        }
+
         // Step 2: Sanitize tool names (truncate to 64 chars for Gemini)
-        const sanitizedTools = mapper.registerTools(schemaResult.tools as Tool[]);
+        const sanitizedTools = mapper.registerTools(rewrittenTools);
         modifiedBody = { ...modifiedBody, tools: sanitizedTools };
 
         // Log sanitization warnings

@@ -91,4 +91,43 @@ describe('profile-registry context normalization', () => {
     expect(accounts.work.context_group).toBeUndefined();
     expect(accounts.work.continuity_mode).toBe('standard');
   });
+
+  it('persists bare flag for legacy profiles', () => {
+    const registry = new ProfileRegistry();
+    registry.createProfile('work', { type: 'account', bare: true });
+
+    const profile = registry.getProfile('work');
+    expect(profile.bare).toBe(true);
+  });
+
+  it('persists bare flag for unified accounts and merged projection', () => {
+    process.env.CCS_UNIFIED_CONFIG = '1';
+    const ccsDir = path.join(tempHome, '.ccs');
+    fs.mkdirSync(ccsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(ccsDir, 'config.yaml'),
+      [
+        'version: 8',
+        'accounts:',
+        '  work:',
+        '    created: "2026-03-05T00:00:00.000Z"',
+        '    last_used: null',
+        '    bare: true',
+        'profiles: {}',
+        'cliproxy:',
+        '  oauth_accounts: {}',
+        '  providers: {}',
+        '  variants: {}',
+      ].join('\n'),
+      'utf8'
+    );
+
+    const registry = new ProfileRegistry();
+
+    const accounts = registry.getAllAccountsUnified();
+    expect(accounts.work.bare).toBe(true);
+
+    const merged = registry.getAllProfilesMerged();
+    expect(merged.work.bare).toBe(true);
+  });
 });
