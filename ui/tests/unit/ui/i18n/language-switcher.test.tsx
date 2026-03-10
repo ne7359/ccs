@@ -8,6 +8,7 @@ import {
   LOCALE_STORAGE_KEY,
   normalizeLocale,
   persistLocale,
+  SUPPORTED_LOCALES,
 } from '@/lib/locales';
 
 function flattenKeys(node: unknown, prefix = '', out = new Set<string>()): Set<string> {
@@ -91,22 +92,28 @@ describe('Dashboard i18n', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith(LOCALE_STORAGE_KEY, 'zh-CN');
   }, 10000);
 
-  it('supports Vietnamese locale in switcher and persistence', async () => {
-    render(<LanguageSwitcher />);
+  it.each([
+    { locale: 'vi', label: 'Vietnamese', browserLocale: 'vi-VN' },
+    { locale: 'ja', label: 'Japanese', browserLocale: 'ja-JP' },
+  ])(
+    'supports $locale locale in switcher and persistence',
+    async ({ locale, label, browserLocale }) => {
+      render(<LanguageSwitcher />);
 
-    await userEvent.click(screen.getByRole('combobox'));
-    await userEvent.click(await screen.findByText('Vietnamese'));
+      await userEvent.click(screen.getByRole('combobox'));
+      await userEvent.click(await screen.findByText(label));
 
-    await waitFor(() => {
-      expect(i18n.language).toBe('vi');
-    });
-    expect(localStorageMock.setItem).toHaveBeenCalledWith(LOCALE_STORAGE_KEY, 'vi');
-    expect(normalizeLocale('vi-VN')).toBe('vi');
-  });
+      await waitFor(() => {
+        expect(i18n.language).toBe(locale);
+      });
+      expect(localStorageMock.setItem).toHaveBeenCalledWith(LOCALE_STORAGE_KEY, locale);
+      expect(normalizeLocale(browserLocale)).toBe(locale);
+    }
+  );
 
   it('restores locale from persisted storage', () => {
-    persistLocale('vi');
-    expect(getInitialLocale()).toBe('vi');
+    persistLocale('ja');
+    expect(getInitialLocale()).toBe('ja');
   });
 
   it('shows Chinese labels on translated settings tabs', async () => {
@@ -119,32 +126,38 @@ describe('Dashboard i18n', () => {
     expect(screen.getByText('认证')).toBeInTheDocument();
   });
 
-  it('keeps vi translation keys in parity with en and preserves placeholders', () => {
-    const resources = i18n.options.resources as
-      | Record<string, { translation: Record<string, unknown> }>
-      | undefined;
+  it.each(SUPPORTED_LOCALES.filter((locale) => locale !== 'en'))(
+    'keeps %s translation keys in parity with en and preserves placeholders',
+    (locale) => {
+      const resources = i18n.options.resources as
+        | Record<string, { translation: Record<string, unknown> }>
+        | undefined;
 
-    const enTranslation = resources?.en?.translation;
-    const viTranslation = resources?.vi?.translation;
+      const enTranslation = resources?.en?.translation;
+      const localeTranslation = resources?.[locale]?.translation;
 
-    expect(enTranslation).toBeDefined();
-    expect(viTranslation).toBeDefined();
+      expect(enTranslation).toBeDefined();
+      expect(localeTranslation).toBeDefined();
 
-    const enKeys = flattenKeys(enTranslation);
-    const viKeys = flattenKeys(viTranslation);
+      const enKeys = flattenKeys(enTranslation);
+      const localeKeys = flattenKeys(localeTranslation);
 
-    expect([...viKeys].sort()).toEqual([...enKeys].sort());
+      expect([...localeKeys].sort()).toEqual([...enKeys].sort());
 
-    for (const key of enKeys) {
-      const enValue = key
-        .split('.')
-        .reduce<unknown>((acc, part) => (acc as Record<string, unknown>)?.[part], enTranslation);
-      const viValue = key
-        .split('.')
-        .reduce<unknown>((acc, part) => (acc as Record<string, unknown>)?.[part], viTranslation);
+      for (const key of enKeys) {
+        const enValue = key
+          .split('.')
+          .reduce<unknown>((acc, part) => (acc as Record<string, unknown>)?.[part], enTranslation);
+        const localeValue = key
+          .split('.')
+          .reduce<unknown>(
+            (acc, part) => (acc as Record<string, unknown>)?.[part],
+            localeTranslation
+          );
 
-      if (typeof enValue !== 'string' || typeof viValue !== 'string') continue;
-      expect(collectPlaceholders(viValue)).toEqual(collectPlaceholders(enValue));
+        if (typeof enValue !== 'string' || typeof localeValue !== 'string') continue;
+        expect(collectPlaceholders(localeValue)).toEqual(collectPlaceholders(enValue));
+      }
     }
-  });
+  );
 });
