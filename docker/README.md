@@ -13,7 +13,24 @@ Persistent config, restart on reboot.
 
 <br>
 
-## Quick Start (Docker Run)
+## Quick Start (Prebuilt Image)
+
+Pull the latest stable release image from GitHub Container Registry:
+
+```bash
+docker run -d \
+  --name ccs-dashboard \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -p 8317:8317 \
+  -e CCS_PORT=3000 \
+  -v ccs_home:/home/node/.ccs \
+  ghcr.io/kaitranntt/ccs-dashboard:latest
+```
+
+Release-tag images are also published as `ghcr.io/kaitranntt/ccs-dashboard:<version>`.
+
+## Build Locally
 
 ```bash
 docker build -f docker/Dockerfile -t ccs-dashboard:latest .

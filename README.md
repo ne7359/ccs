@@ -55,7 +55,7 @@ ccs config
 
 Dashboard updates hub: `http://localhost:3000/updates`
 
-Want to run the dashboard in Docker? See `docker/README.md`.
+Want to run the dashboard in Docker or pull the prebuilt image? See `docker/README.md`.
 
 ### 3. Configure Your Accounts
 
