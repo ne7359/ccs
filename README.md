@@ -120,6 +120,8 @@ The dashboard provides visual management for all account types:
 
 **Ollama Integration**: Run local open-source models (qwen3-coder, gpt-oss:20b) with full privacy. Use `ccs api create --preset ollama` - requires [Ollama v0.14.0+](https://ollama.com) installed. For cloud models, use `ccs api create --preset ollama-cloud`.
 
+> **Copilot config behavior:** Opening the dashboard or other read-only Copilot endpoints does not rewrite `~/.ccs/copilot.settings.json`. If CCS detects deprecated Copilot model IDs such as `raptor-mini`, it shows warnings immediately and only persists replacements when you explicitly save the Copilot configuration.
+
 **llama.cpp Integration**: Run a local llama.cpp OpenAI-compatible server and create a profile with `ccs api create --preset llamacpp`. CCS defaults to `http://127.0.0.1:8080`, matching the standard llama.cpp server port.
 
 **Azure Foundry**: Use `ccs api create --preset foundry` to set up Claude via Microsoft Azure AI Foundry. Requires Azure resource and API key from [ai.azure.com](https://ai.azure.com).
