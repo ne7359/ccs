@@ -112,7 +112,7 @@ cliproxy:
     expect(settings.env.ANTHROPIC_MODEL).toBe('gpt-5.1-codex-mini');
     expect(settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('gpt-5.1-codex-mini');
     expect(settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('gpt-5.1-codex-mini');
-    expect(settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-5.1-codex-mini');
+    expect(settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-5-codex-mini');
     expect(settings.env.CUSTOM_FLAG).toBe('keep-me');
     expect(settings.hooks.PreToolUse.length).toBe(1);
 
@@ -134,7 +134,7 @@ cliproxy:
     expect(settings.env.ANTHROPIC_MODEL).toBe('gpt-5.3-codex');
     expect(settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('gpt-5.3-codex');
     expect(settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('gpt-5.3-codex');
-    expect(settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-5.1-codex-mini');
+    expect(settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-5-codex-mini');
 
     const modelOnly = updateVariant('demo', { model: 'gpt-5.3-codex' });
     expect(modelOnly.success).toBe(true);
@@ -145,6 +145,6 @@ cliproxy:
     expect(settings.env.ANTHROPIC_MODEL).toBe('gpt-5.3-codex');
     expect(settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('gpt-5.3-codex');
     expect(settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('gpt-5.3-codex');
-    expect(settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-5.1-codex-mini');
+    expect(settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-5-codex-mini');
   });
 });

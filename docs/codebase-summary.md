@@ -1,6 +1,6 @@
 # CCS Codebase Summary
 
-Last Updated: 2026-02-24
+Last Updated: 2026-03-16
 
 Comprehensive overview of the modularized CCS codebase structure following the Phase 9 modularization effort (Settings, Analytics, Auth Monitor splits + Test Infrastructure), v7.1 Remote CLIProxy feature, v7.2 Kiro + GitHub Copilot (ghcp) OAuth providers, v7.14 Hybrid Quota Management, v7.34 Image Analysis Hook, and account-context validation hardening.
 
@@ -96,6 +96,7 @@ src/
 │   ├── auth-handler.ts       # Authentication handling
 │   ├── model-catalog.ts      # Provider model definitions
 │   ├── model-config.ts       # Model configuration
+│   ├── codex-plan-compatibility.ts  # Codex free/paid model fallback guardrails
 │   ├── service-manager.ts    # Background service
 │   ├── proxy-detector.ts     # Running proxy detection
 │   ├── startup-lock.ts       # Race condition prevention

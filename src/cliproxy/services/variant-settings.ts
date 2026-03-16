@@ -290,7 +290,10 @@ export function deleteSettingsFile(settingsPath: string): boolean {
 export function updateSettingsModel(
   settingsPath: string,
   model: string,
-  provider?: CLIProxyProfileName
+  provider?: CLIProxyProfileName,
+  options?: {
+    rewriteHaikuModel?: (model: string) => string;
+  }
 ): void {
   const fileName = path.basename(settingsPath);
   if (fileName.startsWith('composite-')) {
@@ -316,10 +319,13 @@ export function updateSettingsModel(
       settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL = normalizedModel;
       settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL = normalizedModel;
       if (provider === 'codex' && settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
-        settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = canonicalizeModelForProvider(
+        const normalizedHaikuModel = canonicalizeModelForProvider(
           provider,
           settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
         );
+        settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = options?.rewriteHaikuModel
+          ? options.rewriteHaikuModel(normalizedHaikuModel)
+          : normalizedHaikuModel;
       }
     } else {
       // Clear model settings to use defaults

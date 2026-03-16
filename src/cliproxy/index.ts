@@ -100,6 +100,11 @@ export {
   configureProviderModel,
   showCurrentConfig,
 } from './model-config';
+export {
+  getDefaultCodexModel,
+  getFreePlanFallbackCodexModel,
+  reconcileCodexModelForActivePlan,
+} from './codex-plan-compatibility';
 
 // Executor
 export { execClaudeWithCLIProxy, isPortAvailable, findAvailablePort } from './cliproxy-executor';

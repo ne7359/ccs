@@ -146,9 +146,7 @@ export async function configureProviderModel(
   console.error(header(`Configure ${catalog.displayName} Model`));
   console.error('');
   console.error(dim('    Select which model to use for this provider.'));
-  console.error(
-    dim('    Models marked [Paid Tier] require a paid Google account (not free tier).')
-  );
+  console.error(dim('    Models marked [Pro]/[Ultra] require a paid provider plan.'));
   console.error(dim('    Models marked [DEPRECATED] are not recommended for use.'));
   console.error('');
 
@@ -274,7 +272,7 @@ export async function showCurrentConfig(provider: CLIProxyProvider): Promise<voi
 
   console.error('');
   console.error(bold('Available models:'));
-  console.error(dim('  [Paid Tier] = Requires paid Google account (not free tier)'));
+  console.error(dim('  [Pro]/[Ultra] = Requires a paid provider plan'));
   console.error(dim('  [DEPRECATED] = Not recommended for use'));
   console.error('');
   catalog.models.forEach((m) => {
