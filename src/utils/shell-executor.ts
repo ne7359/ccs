@@ -9,6 +9,7 @@ import { ErrorManager } from './error-manager';
 import { getWebSearchHookEnv } from './websearch-manager';
 import { wireChildProcessSignals } from './signal-forwarder';
 import { loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
+import SharedManager from '../management/shared-manager';
 
 /**
  * Strip ANTHROPIC_* env vars from an environment object.
@@ -121,6 +122,14 @@ export function execClaude(
   // Strip Claude Code nested session guard env var to allow CCS delegation
   // (Claude Code v2.1.39+ sets CLAUDECODE to detect nested sessions)
   const env = stripClaudeCodeEnv(mergedEnv);
+
+  if (profileType !== 'account') {
+    try {
+      new SharedManager().normalizeSharedPluginMetadataPaths(env.CLAUDE_CONFIG_DIR);
+    } catch {
+      // Best-effort normalization should never block Claude launch.
+    }
+  }
 
   // propagate key env vars to tmux session so agent team teammates
   // (spawned via tmux split-window) inherit the correct config dir

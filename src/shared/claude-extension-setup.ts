@@ -12,6 +12,7 @@ import { CLIPROXY_DEFAULT_PORT } from '../cliproxy/config/port-manager';
 import { getProxyTarget } from '../cliproxy/proxy-target-resolver';
 import { generateCopilotEnv } from '../copilot/copilot-executor';
 import InstanceManager from '../management/instance-manager';
+import SharedManager from '../management/shared-manager';
 import { expandPath } from '../utils/helpers';
 import { getClaudeSettingsPath } from '../utils/claude-config-path';
 import {
@@ -161,6 +162,7 @@ async function resolveExtensionEnv(
       profileType: result.type,
       target: 'claude',
     });
+    new SharedManager().normalizeSharedPluginMetadataPaths(continuity.claudeConfigDir);
     if (continuity.claudeConfigDir) {
       notes.push(`Default profile inherits continuity from account "${continuity.sourceAccount}".`);
       return {
@@ -234,6 +236,9 @@ async function resolveExtensionEnv(
       `Continuity inheritance adds CLAUDE_CONFIG_DIR from account "${continuity.sourceAccount}".`
     );
   }
+
+  new SharedManager().normalizeSharedPluginMetadataPaths(env.CLAUDE_CONFIG_DIR);
+
   if (result.type === 'copilot') {
     warnings.push(
       'copilot-api must stay reachable for this profile to work inside the IDE extension.'

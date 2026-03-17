@@ -1,4 +1,14 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
 import { EventEmitter } from 'events';
 import * as childProcess from 'child_process';
 import * as fs from 'fs';
@@ -115,6 +125,7 @@ preferences:
 let execClaude: typeof import('../../../src/utils/shell-executor').execClaude;
 let stripClaudeCodeEnv: typeof import('../../../src/utils/shell-executor').stripClaudeCodeEnv;
 let HeadlessExecutor: typeof import('../../../src/delegation/headless-executor').HeadlessExecutor;
+let SharedManager: typeof import('../../../src/management/shared-manager').default;
 
 beforeAll(async () => {
   registerChildProcessMock();
@@ -122,6 +133,9 @@ beforeAll(async () => {
   const shellExecutor = await import('../../../src/utils/shell-executor');
   execClaude = shellExecutor.execClaude;
   stripClaudeCodeEnv = shellExecutor.stripClaudeCodeEnv;
+
+  const sharedManagerModule = await import('../../../src/management/shared-manager');
+  SharedManager = sharedManagerModule.default;
 
   const headless = await import('../../../src/delegation/headless-executor');
   HeadlessExecutor = headless.HeadlessExecutor;
@@ -240,6 +254,32 @@ describe('CLAUDECODE environment stripping', () => {
     expect(spawnCalls.length).toBeGreaterThan(0);
     const env = spawnCalls[0].options?.env as NodeJS.ProcessEnv;
     expect(env.DISABLE_AUTOUPDATER).toBeUndefined();
+  });
+
+  it('execClaude normalizes shared plugin metadata before default-profile launch', () => {
+    const normalizeSpy = spyOn(
+      SharedManager.prototype,
+      'normalizeSharedPluginMetadataPaths'
+    ).mockImplementation(() => {});
+
+    execClaude('claude', ['--help'], { CCS_PROFILE_TYPE: 'default' });
+
+    expect(normalizeSpy).toHaveBeenCalledWith(undefined);
+  });
+
+  it('execClaude normalizes shared plugin metadata using CLAUDE_CONFIG_DIR when provided', () => {
+    const normalizeSpy = spyOn(
+      SharedManager.prototype,
+      'normalizeSharedPluginMetadataPaths'
+    ).mockImplementation(() => {});
+    const instancePath = path.join(os.tmpdir(), 'ccs-shell-executor-instance');
+
+    execClaude('claude', ['--help'], {
+      CCS_PROFILE_TYPE: 'settings',
+      CLAUDE_CONFIG_DIR: instancePath,
+    });
+
+    expect(normalizeSpy).toHaveBeenCalledWith(instancePath);
   });
 
   it('headless executor spawn path strips CLAUDECODE before spawn', async () => {

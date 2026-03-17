@@ -1,10 +1,21 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
 import express from 'express';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { Server } from 'http';
 import claudeExtensionRoutes from '../../../src/web-server/routes/claude-extension-routes';
+import SharedManager from '../../../src/management/shared-manager';
 import { createEmptyUnifiedConfig } from '../../../src/config/unified-config-types';
 import { saveUnifiedConfig } from '../../../src/config/unified-config-loader';
 
@@ -98,6 +109,8 @@ describe('web-server claude-extension-routes', () => {
   });
 
   afterEach(() => {
+    mock.restore();
+
     if (originalCcsHome !== undefined) process.env.CCS_HOME = originalCcsHome;
     else delete process.env.CCS_HOME;
 
@@ -143,6 +156,61 @@ describe('web-server claude-extension-routes', () => {
     expect(payload.sharedSettings.json).toContain('"env"');
   });
 
+  it('normalizes the effective profile CLAUDE_CONFIG_DIR for extension setup', async () => {
+    const explicitConfigDir = path.join(tempHome, '.claude-profiles', 'glm');
+    const glmSettingsPath = path.join(tempHome, '.ccs', 'glm.settings.json');
+    const normalizeSpy = spyOn(
+      SharedManager.prototype,
+      'normalizeSharedPluginMetadataPaths'
+    ).mockImplementation(() => {});
+
+    fs.writeFileSync(
+      glmSettingsPath,
+      JSON.stringify(
+        {
+          env: {
+            ANTHROPIC_BASE_URL: 'https://api.example.test',
+            ANTHROPIC_API_KEY: 'sk-ant-test-123456',
+            ANTHROPIC_MODEL: 'claude-sonnet-4-5',
+            CLAUDE_CONFIG_DIR: explicitConfigDir,
+          },
+        },
+        null,
+        2
+      ) + '\n'
+    );
+
+    const config = createEmptyUnifiedConfig();
+    config.profiles.glm = {
+      type: 'api',
+      settings: glmSettingsPath,
+    };
+    config.accounts.work = {
+      created: '2026-03-15T00:00:00.000Z',
+      last_used: null,
+      context_mode: 'isolated',
+    };
+    config.default = 'work';
+    config.continuity = {
+      inherit_from_account: {
+        glm: 'work',
+      },
+    };
+    saveUnifiedConfig(config);
+
+    const response = await fetch(`${baseUrl}/api/claude-extension/setup?profile=glm&host=vscode`);
+    expect(response.status).toBe(200);
+
+    const payload = (await response.json()) as {
+      ideSettings: { json: string };
+    };
+
+    expect(payload.ideSettings.json).toContain(explicitConfigDir);
+    expect(normalizeSpy.mock.calls.some(([configDir]) => configDir === explicitConfigDir)).toBe(
+      true
+    );
+  });
+
   it('renders Windsurf setup for default account resolution via CLAUDE_CONFIG_DIR', async () => {
     const response = await fetch(
       `${baseUrl}/api/claude-extension/setup?profile=default&host=windsurf`
@@ -179,7 +247,11 @@ describe('web-server claude-extension-routes', () => {
     expect(createResponse.status).toBe(201);
 
     const created = (await createResponse.json()) as {
-      binding: { id: string; effectiveIdeSettingsPath: string; usesDefaultIdeSettingsPath: boolean };
+      binding: {
+        id: string;
+        effectiveIdeSettingsPath: string;
+        usesDefaultIdeSettingsPath: boolean;
+      };
     };
     expect(created.binding.effectiveIdeSettingsPath).toBe(ideSettingsPath);
     expect(created.binding.usesDefaultIdeSettingsPath).toBe(false);
@@ -418,7 +490,10 @@ describe('web-server claude-extension-routes', () => {
     );
     expect(applyResponse.status).toBe(200);
 
-    let ideSettings = JSON.parse(fs.readFileSync(ideSettingsPath, 'utf8')) as Record<string, unknown>;
+    let ideSettings = JSON.parse(fs.readFileSync(ideSettingsPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     const appliedEnv = ideSettings['claudeCode.environmentVariables'] as Array<{
       name: string;
       value: string;
@@ -426,7 +501,9 @@ describe('web-server claude-extension-routes', () => {
 
     expect(appliedEnv.some((entry) => entry.name === 'KEEP_ME' && entry.value === '1')).toBe(true);
     expect(
-      appliedEnv.some((entry) => entry.name === 'ANTHROPIC_API_KEY' && entry.value === 'sk-ant-test-123456')
+      appliedEnv.some(
+        (entry) => entry.name === 'ANTHROPIC_API_KEY' && entry.value === 'sk-ant-test-123456'
+      )
     ).toBe(true);
 
     const verifyAppliedResponse = await fetch(
@@ -452,7 +529,9 @@ describe('web-server claude-extension-routes', () => {
     ideSettings = JSON.parse(fs.readFileSync(ideSettingsPath, 'utf8')) as Record<string, unknown>;
     expect(ideSettings['editor.tabSize']).toBe(2);
     expect(ideSettings['claudeCode.disableLoginPrompt']).toBeUndefined();
-    expect(ideSettings['claudeCode.environmentVariables']).toEqual([{ name: 'KEEP_ME', value: '1' }]);
+    expect(ideSettings['claudeCode.environmentVariables']).toEqual([
+      { name: 'KEEP_ME', value: '1' },
+    ]);
 
     const verifyResetResponse = await fetch(
       `${baseUrl}/api/claude-extension/bindings/${created.binding.id}/verify`
