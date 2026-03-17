@@ -1,3 +1,57 @@
+## [7.55.0](https://github.com/kaitranntt/ccs/compare/v7.54.0...v7.55.0) (2026-03-17)
+
+### Features
+
+* add dashboard host binding option ([553f8ac](https://github.com/kaitranntt/ccs/commit/553f8ac1e51cd128bb8605cce68447a5fe015817))
+* **cursor:** add Anthropic daemon endpoint ([daad5d1](https://github.com/kaitranntt/ccs/commit/daad5d1f50c20ffa9a7bd886c0ddcf25e00e84f3))
+* deprecate GLMT user-facing surfaces ([5525098](https://github.com/kaitranntt/ccs/commit/55250984002a0021890f47097a540b5bc6122f26))
+* **novita:** add Novita AI provider preset ([a1a8cad](https://github.com/kaitranntt/ccs/commit/a1a8cad2b3e7a0129c5972be70775961f6777f36))
+* **ui:** add searchable model comboboxes ([d056878](https://github.com/kaitranntt/ccs/commit/d05687853990dd5c4f3474195bcad8cd46481d82))
+* **ui:** improve API profile provider selector UX ([0337a32](https://github.com/kaitranntt/ccs/commit/0337a32d991ae2099447e43f67f6d14bf4267e25))
+
+### Bug Fixes
+
+* add novita preset icon asset ([eeadff3](https://github.com/kaitranntt/ccs/commit/eeadff3e52fe5f154ad647a990fef8603be2bc51))
+* align dashboard host warnings with effective bind ([dcc6747](https://github.com/kaitranntt/ccs/commit/dcc67477ecdc1166413236d434fbb9485f9d9e27))
+* **cliproxy:** make codex defaults free-plan safe ([551591e](https://github.com/kaitranntt/ccs/commit/551591ef18eda0a3cbd5a9ed99c5865d2bb20dfb))
+* **cliproxy:** remap codex haiku fallback on free plans ([e6b3635](https://github.com/kaitranntt/ccs/commit/e6b363524bc28c5b9d3b1b675cb2cf9f749a936a))
+* **commands:** follow up command routing hardening regressions ([d524650](https://github.com/kaitranntt/ccs/commit/d52465058e3d8f06895e70d74183cbb0d8700312))
+* correct novita preset endpoint and asset handling ([94fa96a](https://github.com/kaitranntt/ccs/commit/94fa96aa81f83a29aedde2abaa369ebe33d58f8f))
+* **cursor:** avoid empty user turns after tool results ([b068fb2](https://github.com/kaitranntt/ccs/commit/b068fb26214b60e3e11ae6dba92294bef7d3c05e))
+* **cursor:** harden anthropic daemon contract handling ([a35859a](https://github.com/kaitranntt/ccs/commit/a35859aba57de1212298fb9524dd912ac2be5c3a))
+* **cursor:** harden anthropic response fallback paths ([eaee4a9](https://github.com/kaitranntt/ccs/commit/eaee4a92cad9776ac67b2aecf0a01d13880155a7))
+* **cursor:** harden anthropic translation edge cases ([9ff021e](https://github.com/kaitranntt/ccs/commit/9ff021e42b4739b2721ec4f1bd28a0a526686255))
+* normalize plugin metadata across shared launch flows ([1043a43](https://github.com/kaitranntt/ccs/commit/1043a433f6c78d536353dd5b63cd439a41deb83c))
+* **proxy:** support portable undici dispatcher typings ([ee06f83](https://github.com/kaitranntt/ccs/commit/ee06f83988bd472b93351ff7f86a17ad8484ba92))
+* restore route target parser exports ([eb9e9a8](https://github.com/kaitranntt/ccs/commit/eb9e9a8c839fa8b5d73707057f90d9e72508aba2))
+* **shared-manager:** normalize marketplace registry paths ([2cb5b4e](https://github.com/kaitranntt/ccs/commit/2cb5b4ebecc34aa13603a0dfd2ca873afcbb7cdb))
+* **ui:** add llama.cpp provider icon ([93d94b5](https://github.com/kaitranntt/ccs/commit/93d94b597f94b34c1a89479bb94e5b8b08c440cc))
+* **ui:** keep provider names readable ([3954e44](https://github.com/kaitranntt/ccs/commit/3954e445f331ee8e269c5bb3f74af7d8c196d322))
+* **ui:** rebalance API profile provider chooser ([8c0d75a](https://github.com/kaitranntt/ccs/commit/8c0d75a454c923f8a592a5abbf82c03763c295bc))
+* **ui:** restore searchable combobox keyboard navigation ([5fe96b7](https://github.com/kaitranntt/ccs/commit/5fe96b74b9ab7fdd9e658fc967139f5d182d9305))
+* **ui:** simplify provider chooser cards ([a999adc](https://github.com/kaitranntt/ccs/commit/a999adc776029adebc3b67b16dfea2046bb9f73a))
+
+### Documentation
+
+* **community:** add GitHub contribution templates ([462d382](https://github.com/kaitranntt/ccs/commit/462d382c9391a17677095c9646954bf57668c802))
+* **community:** soften contributor requirements ([f0f5a9c](https://github.com/kaitranntt/ccs/commit/f0f5a9cf98ca5bc342f2ab2b47c35ebd8e4abee9))
+* **contributing:** refresh contributor workflow ([5f97316](https://github.com/kaitranntt/ccs/commit/5f973162f4a24af8dd6cea120c7e5bb126b6d205))
+* **readme:** highlight hosted docs hub ([9a44f53](https://github.com/kaitranntt/ccs/commit/9a44f53c15014499ebc132ffde8619b4be92df91))
+* **roadmap:** mention llama.cpp icon polish ([ea15e5e](https://github.com/kaitranntt/ccs/commit/ea15e5eb50528fa241e76e34630838c1e3e049a1))
+* **roadmap:** record issue 744 provider selector update ([0819de2](https://github.com/kaitranntt/ccs/commit/0819de2f9f2cbf7f369c8c05647893191610e506))
+* **roadmap:** record issue 748 chooser follow-up ([098416a](https://github.com/kaitranntt/ccs/commit/098416aefd7659b9afbd212f864b3443dbb4e265))
+
+### Code Refactoring
+
+* **commands:** split CLI command routing ([2044756](https://github.com/kaitranntt/ccs/commit/204475627a950e677c7c4d15e6219d6ede5299c9))
+
+### Tests
+
+* **cliproxy:** cover codex plan fallback edge cases ([ce600a7](https://github.com/kaitranntt/ccs/commit/ce600a7f229ee06418e1cff37648e74ed74f4a8f))
+* cover invalid novita preset ids ([334f369](https://github.com/kaitranntt/ccs/commit/334f3697f939f81032965f31007ece2cedb33018))
+* **cursor:** reclassify daemon lifecycle smoke coverage ([67290e8](https://github.com/kaitranntt/ccs/commit/67290e85c0c513f31f8f648a33817d1f71dcd835))
+* restore config command host mock ([a4c1031](https://github.com/kaitranntt/ccs/commit/a4c10313243f531e943850339fd1f98ca96a289d))
+
 ## [7.54.0](https://github.com/kaitranntt/ccs/compare/v7.53.0...v7.54.0) (2026-03-16)
 
 ### Features
