@@ -68,6 +68,13 @@ describe('cursor daemon lifecycle smoke', () => {
       }),
     });
     expect(anthropicResponse.status).toBe(401);
+    const anthropicBody = (await anthropicResponse.json()) as {
+      type?: string;
+      error?: { type?: string; message?: string };
+    };
+    expect(anthropicBody.type).toBe('error');
+    expect(anthropicBody.error?.type).toBe('authentication_error');
+    expect(anthropicBody.error?.message).toContain('Run `ccs cursor auth` first');
 
     const stopResult = await stopDaemon();
     expect(stopResult.success).toBe(true);
@@ -146,6 +153,13 @@ describe('cursor daemon lifecycle smoke', () => {
       }),
     });
     expect(invalidAnthropic.status).toBe(400);
+    const invalidAnthropicBody = (await invalidAnthropic.json()) as {
+      type?: string;
+      error?: { type?: string; message?: string };
+    };
+    expect(invalidAnthropicBody.type).toBe('error');
+    expect(invalidAnthropicBody.error?.type).toBe('invalid_request_error');
+    expect(invalidAnthropicBody.error?.message).toContain('is not supported');
 
     const oversized = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
       method: 'POST',

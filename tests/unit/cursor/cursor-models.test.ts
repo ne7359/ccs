@@ -57,6 +57,19 @@ describe('resolveCursorRequestModel', () => {
     expect(resolved).toBe('claude-4.6-opus');
   });
 
+  it('maps Anthropic family-first aliases to the matching Cursor model id', () => {
+    const resolved = resolveCursorRequestModel('claude-sonnet-4.5', DEFAULT_CURSOR_MODELS);
+    expect(resolved).toBe('claude-4.5-sonnet');
+  });
+
+  it('strips provider, dated, and thinking suffixes before resolving Anthropic aliases', () => {
+    const resolved = resolveCursorRequestModel(
+      'anthropic/claude-sonnet-4.5-20250929-thinking',
+      DEFAULT_CURSOR_MODELS
+    );
+    expect(resolved).toBe('claude-4.5-sonnet');
+  });
+
   it('falls back to default when requested model is unavailable', () => {
     const resolved = resolveCursorRequestModel('non-existent-model', DEFAULT_CURSOR_MODELS);
     expect(resolved).toBe(DEFAULT_CURSOR_MODEL);

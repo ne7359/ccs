@@ -157,10 +157,22 @@ export function translateAnthropicRequest(raw: unknown): TranslatedAnthropicRequ
             `messages[${messageIndex}].content[${blockIndex}] tool_result requires user role`
           );
         }
+        if (typeof parsed.tool_use_id !== 'string' || parsed.tool_use_id.trim().length === 0) {
+          throw new Error(
+            `messages[${messageIndex}].content[${blockIndex}].tool_use_id must be a non-empty string`
+          );
+        }
         sawToolResult = true;
+        if (textParts.length > 0) {
+          translatedMessages.push({
+            role,
+            content: textParts.join('\n'),
+          });
+          textParts.length = 0;
+        }
         translatedMessages.push({
           role: 'tool',
-          tool_call_id: typeof parsed.tool_use_id === 'string' ? parsed.tool_use_id : '',
+          tool_call_id: parsed.tool_use_id,
           content: toToolResultContent(
             parsed.content,
             `messages[${messageIndex}].content[${blockIndex}].content`

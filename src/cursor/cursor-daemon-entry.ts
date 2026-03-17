@@ -7,7 +7,10 @@
 import * as http from 'http';
 import { Readable } from 'stream';
 import { CursorExecutor } from './cursor-executor';
-import { createAnthropicProxyResponse } from './cursor-anthropic-response';
+import {
+  createAnthropicErrorResponse,
+  createAnthropicProxyResponse,
+} from './cursor-anthropic-response';
 import { translateAnthropicRequest } from './cursor-anthropic-translator';
 import { checkAuthStatus } from './cursor-auth';
 import { getModelsForDaemon, resolveCursorRequestModel } from './cursor-models';
@@ -192,10 +195,12 @@ export function startCursorDaemonServer(options: DaemonRuntimeOptions): http.Ser
   const executor = new CursorExecutor();
 
   const server = http.createServer(async (req, res) => {
-    try {
-      const method = req.method || 'GET';
-      const requestUrl = req.url || '/';
+    const method = req.method || 'GET';
+    const requestUrl = req.url || '/';
+    const isOpenAiRoute = method === 'POST' && requestUrl === '/v1/chat/completions';
+    const isAnthropicRoute = method === 'POST' && requestUrl === '/v1/messages';
 
+    try {
       if (method === 'GET' && requestUrl === '/health') {
         writeJson(res, 200, { ok: true, service: 'cursor-daemon' });
         return;
@@ -224,9 +229,6 @@ export function startCursorDaemonServer(options: DaemonRuntimeOptions): http.Ser
         return;
       }
 
-      const isOpenAiRoute = method === 'POST' && requestUrl === '/v1/chat/completions';
-      const isAnthropicRoute = method === 'POST' && requestUrl === '/v1/messages';
-
       if (!isOpenAiRoute && !isAnthropicRoute) {
         writeJson(res, 404, { error: 'Not found' });
         return;
@@ -246,22 +248,38 @@ export function startCursorDaemonServer(options: DaemonRuntimeOptions): http.Ser
 
       const authStatus = checkAuthStatus();
       if (!authStatus.authenticated || !authStatus.credentials) {
-        writeJson(res, 401, {
-          error: {
-            type: 'authentication_error',
-            message: 'Cursor credentials not found. Run `ccs cursor auth` first.',
-          },
-        });
+        const message = 'Cursor credentials not found. Run `ccs cursor auth` first.';
+        if (isAnthropicRoute) {
+          await pipeWebResponseToNode(
+            createAnthropicErrorResponse(401, 'authentication_error', message),
+            res
+          );
+        } else {
+          writeJson(res, 401, {
+            error: {
+              type: 'authentication_error',
+              message,
+            },
+          });
+        }
         return;
       }
 
       if (authStatus.expired) {
-        writeJson(res, 401, {
-          error: {
-            type: 'authentication_error',
-            message: 'Cursor credentials expired. Run `ccs cursor auth` again.',
-          },
-        });
+        const message = 'Cursor credentials expired. Run `ccs cursor auth` again.';
+        if (isAnthropicRoute) {
+          await pipeWebResponseToNode(
+            createAnthropicErrorResponse(401, 'authentication_error', message),
+            res
+          );
+        } else {
+          writeJson(res, 401, {
+            error: {
+              type: 'authentication_error',
+              message,
+            },
+          });
+        }
         return;
       }
 
@@ -318,12 +336,20 @@ export function startCursorDaemonServer(options: DaemonRuntimeOptions): http.Ser
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       const isPayloadTooLarge = message.includes('Request body too large');
-      writeJson(res, isPayloadTooLarge ? 413 : 400, {
-        error: {
-          type: 'invalid_request_error',
-          message,
-        },
-      });
+      const status = isPayloadTooLarge ? 413 : 400;
+      if (isAnthropicRoute) {
+        await pipeWebResponseToNode(
+          createAnthropicErrorResponse(status, 'invalid_request_error', message),
+          res
+        );
+      } else {
+        writeJson(res, status, {
+          error: {
+            type: 'invalid_request_error',
+            message,
+          },
+        });
+      }
     }
   });
 

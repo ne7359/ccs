@@ -19,6 +19,7 @@
 
 interface SSEParserOptions {
   maxBufferSize?: number;
+  throwOnMalformedJson?: boolean;
 }
 
 interface SSEEvent {
@@ -33,11 +34,13 @@ export class SSEParser {
   private buffer: string;
   private eventCount: number;
   private maxBufferSize: number;
+  private throwOnMalformedJson: boolean;
 
   constructor(options: SSEParserOptions = {}) {
     this.buffer = '';
     this.eventCount = 0;
     this.maxBufferSize = options.maxBufferSize || 1024 * 1024; // 1MB default
+    this.throwOnMalformedJson = options.throwOnMalformedJson === true;
   }
 
   /**
@@ -91,6 +94,9 @@ export class SSEParser {
                 'Data:',
                 data.substring(0, 100)
               );
+            }
+            if (this.throwOnMalformedJson) {
+              throw new Error(`Malformed SSE JSON event: ${(e as Error).message}`);
             }
           }
         }

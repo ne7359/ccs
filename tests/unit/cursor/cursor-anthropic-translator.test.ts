@@ -90,6 +90,27 @@ describe('translateAnthropicRequest', () => {
     ]);
   });
 
+  it('preserves mixed user text around tool_result blocks in order', () => {
+    const translated = translateAnthropicRequest({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'before' },
+            { type: 'tool_result', tool_use_id: 'toolu_1', content: 'done' },
+            { type: 'text', text: 'after' },
+          ],
+        },
+      ],
+    });
+
+    expect(translated.messages).toEqual([
+      { role: 'user', content: 'before' },
+      { role: 'tool', tool_call_id: 'toolu_1', content: 'done' },
+      { role: 'user', content: 'after' },
+    ]);
+  });
+
   it('handles empty messages arrays', () => {
     const translated = translateAnthropicRequest({ messages: [] });
 
@@ -148,6 +169,19 @@ describe('translateAnthropicRequest', () => {
         content: '',
       },
     ]);
+  });
+
+  it('rejects tool_result blocks without a non-empty tool_use_id', () => {
+    expect(() =>
+      translateAnthropicRequest({
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: '   ', content: 'done' }],
+          },
+        ],
+      })
+    ).toThrow('tool_use_id must be a non-empty string');
   });
 
   it('falls back when tool_use input cannot be serialized', () => {
@@ -241,7 +275,11 @@ describe('createAnthropicProxyResponse', () => {
     );
 
     expect(transformed.status).toBe(502);
-    const body = (await transformed.json()) as { error?: { type?: string; message?: string } };
+    const body = (await transformed.json()) as {
+      type?: string;
+      error?: { type?: string; message?: string };
+    };
+    expect(body.type).toBe('error');
     expect(body.error?.type).toBe('api_error');
     expect(body.error?.message).toBe('Failed to translate Cursor JSON response');
   });
@@ -261,7 +299,11 @@ describe('createAnthropicProxyResponse', () => {
     );
 
     expect(transformed.status).toBe(502);
-    const body = (await transformed.json()) as { error?: { type?: string; message?: string } };
+    const body = (await transformed.json()) as {
+      type?: string;
+      error?: { type?: string; message?: string };
+    };
+    expect(body.type).toBe('error');
     expect(body.error?.type).toBe('api_error');
     expect(body.error?.message).toBe('Failed to translate Cursor JSON response');
   });
@@ -282,7 +324,63 @@ describe('createAnthropicProxyResponse', () => {
     );
 
     expect(transformed.status).toBe(502);
-    const body = (await transformed.json()) as { error?: { type?: string; message?: string } };
+    const body = (await transformed.json()) as {
+      type?: string;
+      error?: { type?: string; message?: string };
+    };
+    expect(body.type).toBe('error');
+    expect(body.error?.type).toBe('api_error');
+    expect(body.error?.message).toBe('Failed to translate Cursor JSON response');
+  });
+
+  it('returns Anthropic error envelopes for non-OK upstream JSON errors', async () => {
+    const transformed = await createAnthropicProxyResponse(
+      new Response(
+        JSON.stringify({
+          error: {
+            type: 'invalid_request_error',
+            message: '[400]: upstream rejected request',
+          },
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '7' },
+        }
+      )
+    );
+
+    expect(transformed.status).toBe(400);
+    expect(transformed.headers.get('retry-after')).toBe('7');
+    const body = (await transformed.json()) as {
+      type?: string;
+      error?: { type?: string; message?: string };
+    };
+    expect(body.type).toBe('error');
+    expect(body.error?.type).toBe('invalid_request_error');
+    expect(body.error?.message).toBe('[400]: upstream rejected request');
+  });
+
+  it('returns 502 when Cursor response choices are malformed', async () => {
+    const transformed = await createAnthropicProxyResponse(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl_missing_message',
+          model: 'claude-sonnet-4.5',
+          choices: [{ index: 0 }],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    expect(transformed.status).toBe(502);
+    const body = (await transformed.json()) as {
+      type?: string;
+      error?: { type?: string; message?: string };
+    };
+    expect(body.type).toBe('error');
     expect(body.error?.type).toBe('api_error');
     expect(body.error?.message).toBe('Failed to translate Cursor JSON response');
   });
@@ -315,6 +413,21 @@ describe('createAnthropicProxyResponse', () => {
       new Response(oversizedChunk, {
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const body = await transformed.text();
+    expect(body).toContain('event: error');
+    expect(body).toContain('"type":"error"');
+    expect(body).toContain('"error":{"type":"api_error"');
+    expect(body).toContain('Failed to translate Cursor SSE response');
+  });
+
+  it('emits Anthropic-style error events when SSE JSON is malformed', async () => {
+    const transformed = await createAnthropicProxyResponse(
+      new Response('data: {not-json}\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
       })
     );
 

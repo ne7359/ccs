@@ -5,23 +5,59 @@ import type { OpenAIResponse, SSEEvent } from '../glmt/pipeline';
 
 const JSON_TRANSLATION_ERROR_MESSAGE = 'Failed to translate Cursor JSON response';
 const STREAM_TRANSLATION_ERROR_MESSAGE = 'Failed to translate Cursor SSE response';
+type ResponseHeaders = Headers | Record<string, string> | Array<[string, string]>;
 
-function createErrorResponse(message: string): Response {
-  return new Response(
-    JSON.stringify({
-      error: {
-        type: 'api_error',
-        message,
-      },
-    }),
-    {
-      status: 502,
-      headers: { 'Content-Type': 'application/json' },
-    }
-  );
+interface AnthropicErrorPayload {
+  type: 'error';
+  error: {
+    type: string;
+    message: string;
+  };
 }
 
-function formatSseEvent(event: string, data: Record<string, unknown>): string {
+function createAnthropicErrorPayload(type: string, message: string): AnthropicErrorPayload {
+  return {
+    type: 'error',
+    error: {
+      type,
+      message,
+    },
+  };
+}
+
+function formatErrorForLog(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function logTranslationError(context: string, error: unknown): void {
+  console.error(`[cursor-anthropic-response] ${context}: ${formatErrorForLog(error)}`);
+}
+
+export function createAnthropicErrorResponse(
+  status: number,
+  type: string,
+  message: string,
+  headers?: ResponseHeaders
+): Response {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set('Content-Type', 'application/json');
+  responseHeaders.delete('Content-Length');
+
+  return new Response(JSON.stringify(createAnthropicErrorPayload(type, message)), {
+    status,
+    headers: responseHeaders,
+  });
+}
+
+function formatSseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
@@ -31,33 +67,110 @@ function hasTranslatableChoices(value: unknown): value is OpenAIResponse {
   }
 
   const { choices } = value as OpenAIResponse;
-  return Array.isArray(choices) && choices.length > 0;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return false;
+  }
+
+  const firstChoice = choices[0];
+  if (typeof firstChoice !== 'object' || firstChoice === null) {
+    return false;
+  }
+
+  const message = (firstChoice as { message?: unknown }).message;
+  return typeof message === 'object' && message !== null;
+}
+
+function isSyntheticTransformationFallback(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    (value as { id: string }).id.startsWith('msg_error_')
+  );
+}
+
+async function createAnthropicErrorProxyResponse(response: Response): Promise<Response> {
+  const headers = new Headers(response.headers);
+  headers.delete('Content-Type');
+  headers.delete('Content-Length');
+
+  let type =
+    response.status === 401
+      ? 'authentication_error'
+      : response.status === 429
+        ? 'rate_limit_error'
+        : response.status >= 400 && response.status < 500
+          ? 'invalid_request_error'
+          : 'api_error';
+  let message = `Cursor request failed with status ${response.status}`;
+
+  try {
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (contentType.includes('application/json')) {
+      const payload = (await response.json()) as {
+        error?: { type?: string; message?: string };
+        message?: string;
+      };
+
+      if (typeof payload?.error?.type === 'string' && payload.error.type.trim().length > 0) {
+        type = payload.error.type;
+      }
+
+      if (typeof payload?.error?.message === 'string' && payload.error.message.trim().length > 0) {
+        message = payload.error.message;
+      } else if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
+        message = payload.message;
+      }
+    } else {
+      const text = (await response.text()).trim();
+      if (text.length > 0) {
+        message = text;
+      }
+    }
+  } catch (error) {
+    logTranslationError('Failed to parse Cursor error response', error);
+  }
+
+  return createAnthropicErrorResponse(response.status, type, message, headers);
 }
 
 async function createAnthropicJsonResponse(response: Response): Promise<Response> {
   try {
     const openAiResponse = await response.json();
     if (!hasTranslatableChoices(openAiResponse)) {
-      return createErrorResponse(JSON_TRANSLATION_ERROR_MESSAGE);
+      return createAnthropicErrorResponse(502, 'api_error', JSON_TRANSLATION_ERROR_MESSAGE);
     }
 
     const anthropicResponse = new GlmtTransformer().transformResponse(openAiResponse);
+    if (isSyntheticTransformationFallback(anthropicResponse)) {
+      logTranslationError(
+        'Cursor JSON translation produced synthetic fallback response',
+        anthropicResponse
+      );
+      return createAnthropicErrorResponse(502, 'api_error', JSON_TRANSLATION_ERROR_MESSAGE);
+    }
+
     return new Response(JSON.stringify(anthropicResponse), {
       status: response.status,
       headers: { 'Content-Type': 'application/json' },
     });
-  } catch {
-    return createErrorResponse(JSON_TRANSLATION_ERROR_MESSAGE);
+  } catch (error) {
+    logTranslationError('Cursor JSON translation failed', error);
+    return createAnthropicErrorResponse(502, 'api_error', JSON_TRANSLATION_ERROR_MESSAGE);
   }
 }
 
 function createAnthropicStreamingResponse(response: Response): Response {
   const body = response.body;
   if (!body) {
-    return createErrorResponse('Cursor stream ended before a response body was available');
+    return createAnthropicErrorResponse(
+      502,
+      'api_error',
+      'Cursor stream ended before a response body was available'
+    );
   }
 
-  const parser = new SSEParser();
+  const parser = new SSEParser({ throwOnMalformedJson: true });
   const transformer = new GlmtTransformer();
   const accumulator = new DeltaAccumulator({});
   const encoder = new TextEncoder();
@@ -94,16 +207,14 @@ function createAnthropicStreamingResponse(response: Response): Response {
             );
           });
         }
-      } catch {
+      } catch (error) {
+        logTranslationError('Cursor SSE translation failed', error);
         controller.enqueue(
           encoder.encode(
-            formatSseEvent('error', {
-              type: 'error',
-              error: {
-                type: 'api_error',
-                message: STREAM_TRANSLATION_ERROR_MESSAGE,
-              },
-            })
+            formatSseEvent(
+              'error',
+              createAnthropicErrorPayload('api_error', STREAM_TRANSLATION_ERROR_MESSAGE)
+            )
           )
         );
       } finally {
@@ -125,11 +236,14 @@ function createAnthropicStreamingResponse(response: Response): Response {
 
 export async function createAnthropicProxyResponse(response: Response): Promise<Response> {
   if (!response.ok) {
-    return response;
+    return createAnthropicErrorProxyResponse(response);
   }
 
-  const contentType = response.headers.get('content-type') || '';
-  return contentType.includes('text/event-stream')
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const isEventStream =
+    contentType === 'text/event-stream' || contentType.startsWith('text/event-stream;');
+
+  return isEventStream
     ? createAnthropicStreamingResponse(response)
     : createAnthropicJsonResponse(response);
 }
