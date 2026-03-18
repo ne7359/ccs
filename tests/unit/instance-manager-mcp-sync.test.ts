@@ -34,6 +34,28 @@ describe('InstanceManager MCP sync', () => {
     );
   }
 
+  function writeMarketplaceRegistryWithMetadata(
+    registryPath: string,
+    installLocation: string,
+    metadata: Record<string, unknown>
+  ): void {
+    fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify(
+        {
+          'claude-code-plugins': {
+            installLocation,
+            ...metadata,
+          },
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+  }
+
   function expectMarketplaceLocation(registryPath: string, expectedLocation: string): void {
     const parsed = readJson(registryPath) as Record<string, { installLocation?: string }>;
     expect(parsed['claude-code-plugins']?.installLocation).toBe(expectedLocation);
@@ -226,43 +248,100 @@ describe('InstanceManager MCP sync', () => {
     expect(syncMcpSpy).toHaveBeenCalledWith(instancePath);
   });
 
-  it('keeps alternating instances independently valid for Claude Code validation', async () => {
+  it('reconciles marketplace metadata across isolated instances without losing refresh fields', async () => {
     spyOn(SharedManager.prototype, 'syncProjectContext').mockResolvedValue(undefined);
     spyOn(SharedManager.prototype, 'syncAdvancedContinuityArtifacts').mockResolvedValue(undefined);
-    spyOn(InstanceManager.prototype, 'syncMcpServers').mockImplementation(() => false);
-
-    const globalRegistryPath = path.join(claudeDir(), 'plugins', 'known_marketplaces.json');
-    writeMarketplaceRegistry(
-      globalRegistryPath,
-      path.join(tempRoot, '.claude', 'plugins', 'marketplaces', 'claude-code-plugins')
-    );
 
     const manager = new InstanceManager();
     const workPath = await manager.ensureInstance('work', { mode: 'isolated' });
+    const workRegistryPath = path.join(workPath, 'plugins', 'known_marketplaces.json');
+    writeMarketplaceRegistryWithMetadata(workRegistryPath, marketplacePath(workPath), {
+      label: 'Official marketplace',
+      refreshToken: 'refresh-token',
+      metadata: {
+        source: 'refresh-flow',
+        lastSyncedAt: '2026-03-18T00:00:00Z',
+      },
+    });
+
     const personalPath = await manager.ensureInstance('personal', { mode: 'isolated' });
-    await manager.ensureInstance('work', { mode: 'isolated' });
+    const workRegistry = readJson(workRegistryPath) as Record<
+      string,
+      {
+        installLocation?: string;
+        label?: string;
+        refreshToken?: string;
+        metadata?: Record<string, unknown>;
+      }
+    >;
+    const personalRegistry = readJson(path.join(personalPath, 'plugins', 'known_marketplaces.json')) as Record<
+      string,
+      {
+        installLocation?: string;
+        label?: string;
+        refreshToken?: string;
+        metadata?: Record<string, unknown>;
+      }
+    >;
 
-    const workInstallLocation = (
-      readJson(path.join(workPath, 'plugins', 'known_marketplaces.json')) as Record<
-        string,
-        { installLocation?: string }
-      >
-    )['claude-code-plugins']?.installLocation;
-    const personalInstallLocation = (
-      readJson(path.join(personalPath, 'plugins', 'known_marketplaces.json')) as Record<
-        string,
-        { installLocation?: string }
-      >
-    )['claude-code-plugins']?.installLocation;
+    expect(workRegistry['claude-code-plugins']).toMatchObject({
+      installLocation: marketplacePath(workPath),
+      label: 'Official marketplace',
+      refreshToken: 'refresh-token',
+      metadata: {
+        source: 'refresh-flow',
+        lastSyncedAt: '2026-03-18T00:00:00Z',
+      },
+    });
+    expect(personalRegistry['claude-code-plugins']).toMatchObject({
+      installLocation: marketplacePath(personalPath),
+      label: 'Official marketplace',
+      refreshToken: 'refresh-token',
+      metadata: {
+        source: 'refresh-flow',
+        lastSyncedAt: '2026-03-18T00:00:00Z',
+      },
+    });
+  });
 
-    expect(workInstallLocation).toBe(marketplacePath(workPath));
-    expect(personalInstallLocation).toBe(marketplacePath(personalPath));
-    expect(path.resolve(workInstallLocation ?? '')).toStartWith(
-      path.resolve(path.join(workPath, 'plugins', 'marketplaces'))
+  it('upgrades a legacy shared plugins symlink to an instance-local layout', async () => {
+    spyOn(SharedManager.prototype, 'syncProjectContext').mockResolvedValue(undefined);
+    spyOn(SharedManager.prototype, 'syncAdvancedContinuityArtifacts').mockResolvedValue(undefined);
+
+    const manager = new InstanceManager();
+    const legacyPath = manager.getInstancePath('legacy');
+    const sharedPluginsPath = path.join(tempRoot, '.ccs', 'shared', 'plugins');
+    fs.mkdirSync(sharedPluginsPath, { recursive: true });
+    fs.mkdirSync(legacyPath, { recursive: true });
+    fs.symlinkSync(sharedPluginsPath, path.join(legacyPath, 'plugins'), 'dir');
+
+    writeMarketplaceRegistryWithMetadata(
+      path.join(claudeDir(), 'plugins', 'known_marketplaces.json'),
+      path.join(tempRoot, '.ccs', 'shared', 'plugins', 'marketplaces', 'claude-code-plugins'),
+      {
+        label: 'Legacy marketplace',
+        refreshToken: 'legacy-refresh-token',
+      }
     );
-    expect(path.resolve(personalInstallLocation ?? '')).toStartWith(
-      path.resolve(path.join(personalPath, 'plugins', 'marketplaces'))
+
+    await manager.ensureInstance('legacy', { mode: 'isolated' });
+
+    expect(fs.lstatSync(path.join(legacyPath, 'plugins')).isSymbolicLink()).toBe(false);
+    expectMarketplaceLocation(
+      path.join(legacyPath, 'plugins', 'known_marketplaces.json'),
+      marketplacePath(legacyPath)
     );
-    expectMarketplaceLocation(globalRegistryPath, marketplacePath(claudeDir()));
+
+    const legacyRegistry = readJson(
+      path.join(legacyPath, 'plugins', 'known_marketplaces.json')
+    ) as Record<
+      string,
+      { installLocation?: string; label?: string; refreshToken?: string }
+    >;
+    expect(legacyRegistry['claude-code-plugins']).toMatchObject({
+      installLocation: marketplacePath(legacyPath),
+      label: 'Legacy marketplace',
+      refreshToken: 'legacy-refresh-token',
+    });
   });
 });

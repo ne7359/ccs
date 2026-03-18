@@ -204,6 +204,44 @@ describe('SharedManager', () => {
       });
     });
 
+    it('warns and skips malformed marketplace registries while keeping valid sources', () => {
+      const manager = new SharedManager();
+      const instancePath = instanceDir('work');
+      fs.mkdirSync(instancePath, { recursive: true });
+      manager.linkSharedDirectories(instancePath);
+
+      const globalRegistryPath = path.join(claudeDir(), 'plugins', 'known_marketplaces.json');
+      writeJson(globalRegistryPath, {
+        'claude-code-plugins': {
+          installLocation: path.join(
+            tempRoot,
+            '.ccs',
+            'instances',
+            'work',
+            'plugins',
+            'marketplaces',
+            'claude-code-plugins'
+          ),
+          label: 'Official marketplace',
+        },
+      });
+
+      const malformedRegistryPath = path.join(instancePath, 'plugins', 'known_marketplaces.json');
+      fs.writeFileSync(malformedRegistryPath, '{invalid-json', 'utf8');
+      const logSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+      manager.normalizeMarketplaceRegistryPaths(instancePath);
+
+      expect(readMarketplaceLocation(malformedRegistryPath)).toBe(marketplacePath(instancePath));
+      expect(
+        logSpy.mock.calls.some(
+          ([message]) =>
+            String(message).includes('Skipping malformed marketplace registry') &&
+            String(message).includes(malformedRegistryPath)
+        )
+      ).toBe(true);
+    });
+
     it('keeps the instance-local registry valid under Windows copy fallback', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' });
       spyOn(fs, 'symlinkSync').mockImplementation(() => {

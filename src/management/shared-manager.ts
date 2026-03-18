@@ -899,8 +899,10 @@ class SharedManager {
         for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
           merged[name] = normalizePluginMetadataValue(value, targetConfigDir).normalized;
         }
-      } catch (_err) {
-        // Best-effort merge: malformed sources should not block self-heal.
+      } catch (err) {
+        console.log(
+          warn(`Skipping malformed marketplace registry ${registryPath}: ${(err as Error).message}`)
+        );
       }
     }
 

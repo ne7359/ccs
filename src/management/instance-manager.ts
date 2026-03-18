@@ -59,14 +59,15 @@ class InstanceManager {
       await this.sharedManager.syncProjectContext(instancePath, contextPolicy);
       await this.sharedManager.syncAdvancedContinuityArtifacts(instancePath, contextPolicy);
 
-      if (!options.bare) {
-        await this.pluginLayoutLock.withNamedLock('__plugin-layout__', async () => {
+      await this.pluginLayoutLock.withNamedLock('__plugin-layout__', async () => {
+        if (!options.bare) {
           this.sharedManager.linkSharedDirectories(instancePath);
-        });
-      }
-    });
+          return;
+        }
 
-    this.sharedManager.normalizeSharedPluginMetadataPaths(options.bare ? undefined : instancePath);
+        this.sharedManager.normalizeSharedPluginMetadataPaths();
+      });
+    });
 
     // Sync MCP servers from global ~/.claude.json (unless bare)
     if (!options.bare) {
