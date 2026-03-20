@@ -1,4 +1,4 @@
-import { SpawnOptions as NodeSpawnOptions } from 'child_process';
+import type { SpawnOptions as NodeSpawnOptions } from 'child_process';
 
 /**
  * CLI Runtime Types
@@ -43,11 +43,13 @@ export interface ClaudeCliInfo {
 /**
  * Exit codes
  */
-export enum ExitCode {
-  SUCCESS = 0,
-  GENERIC_ERROR = 1,
-  CLAUDE_NOT_FOUND = 127,
-  CONFIG_ERROR = 2,
-  DELEGATION_ERROR = 3,
-  TIMEOUT = 124,
-}
+export const ExitCode = {
+  SUCCESS: 0,
+  GENERIC_ERROR: 1,
+  CLAUDE_NOT_FOUND: 127,
+  CONFIG_ERROR: 2,
+  DELEGATION_ERROR: 3,
+  TIMEOUT: 124,
+} as const;
+
+export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];

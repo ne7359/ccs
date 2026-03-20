@@ -7,12 +7,34 @@ const installSpy = {
 };
 
 mock.module('../../../src/config/unified-config-loader', () => ({
+  isUnifiedMode: () => true,
+  loadUnifiedConfig: () => ({
+    cliproxy: { backend: 'plus' },
+  }),
   loadOrCreateUnifiedConfig: () => ({
     cliproxy: { backend: 'plus' },
   }),
+  getGlobalEnvConfig: () => ({}),
+  getThinkingConfig: () => ({
+    mode: 'auto',
+    tier_defaults: {
+      opus: 'high',
+      sonnet: 'high',
+      haiku: 'medium',
+    },
+    provider_overrides: {},
+    show_warnings: true,
+  }),
+  getCliproxySafetyConfig: () => ({
+    antigravity_ack_bypass: false,
+  }),
+  saveUnifiedConfig: () => {},
 }));
 
 mock.module('../../../src/cliproxy/binary-manager', () => ({
+  ensureCLIProxyBinary: async () => '/tmp/cliproxy',
+  isCLIProxyInstalled: () => true,
+  getCLIProxyPath: () => '/tmp/cliproxy',
   checkCliproxyUpdate: async () => ({
     hasUpdate: false,
     currentVersion: '6.6.80',
@@ -26,6 +48,7 @@ mock.module('../../../src/cliproxy/binary-manager', () => ({
   }),
   getInstalledCliproxyVersion: () => '6.6.80',
   installCliproxyVersion: async () => {},
+  fetchLatestCliproxyVersion: async () => '6.6.89',
 }));
 
 mock.module('../../../src/cliproxy/binary/version-checker', () => ({
@@ -103,7 +126,9 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (server) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
   mock.restore();
 });
 

@@ -1,14 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import {
-  Config,
-  isConfig,
-  Settings,
-  isSettings,
-  CLIProxyVariantsConfig,
-  CLIProxyVariantConfig,
-} from '../types';
+import { isConfig, isSettings } from '../types';
+import type { Config, Settings, CLIProxyVariantsConfig, CLIProxyVariantConfig } from '../types';
 import { expandPath, error } from './helpers';
 import { info } from './ui';
 import { isUnifiedMode, loadOrCreateUnifiedConfig } from '../config/unified-config-loader';

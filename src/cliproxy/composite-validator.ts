@@ -3,7 +3,8 @@
  * Used by API routes, service layer, and config loader to avoid contract drift.
  */
 
-import { CLIPROXY_SUPPORTED_PROVIDERS, CompositeTierConfig } from '../config/unified-config-types';
+import { CLIPROXY_SUPPORTED_PROVIDERS } from '../config/unified-config-types';
+import type { CompositeTierConfig } from '../config/unified-config-types';
 import type { CLIProxyProvider } from './types';
 import { getDeniedModelIdReasonForProvider } from './model-id-normalizer';
 

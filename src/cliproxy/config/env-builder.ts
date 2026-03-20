@@ -5,13 +5,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { CLIProxyProvider, ProviderModelMapping } from '../types';
+import type { CLIProxyProvider, ProviderModelMapping } from '../types';
 import { getModelMappingFromConfig, getEnvVarsFromConfig } from '../base-config-loader';
 import { getGlobalEnvConfig } from '../../config/unified-config-loader';
 import { getEffectiveApiKey } from '../auth-token-manager';
 import { expandPath } from '../../utils/helpers';
 import { warn } from '../../utils/ui';
-import { CompositeTierConfig } from '../../config/unified-config-types';
+import type { CompositeTierConfig } from '../../config/unified-config-types';
 import {
   validatePort,
   validateRemotePort,

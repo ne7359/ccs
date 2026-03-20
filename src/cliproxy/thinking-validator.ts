@@ -7,8 +7,9 @@
  * - Warns when model doesn't support thinking
  */
 
-import { getModelThinkingSupport, ThinkingSupport } from './model-catalog';
-import { CLIProxyProvider } from './types';
+import { getModelThinkingSupport } from './model-catalog';
+import type { ThinkingSupport } from './model-catalog';
+import type { CLIProxyProvider } from './types';
 
 /**
  * Thinking budget bounds (used for validation across API and CLI)

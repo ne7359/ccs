@@ -5,7 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { CLIProxyProvider, ProviderConfig } from '../types';
+import type { CLIProxyProvider, ProviderConfig } from '../types';
 import { getProviderDisplayName } from '../provider-capabilities';
 import { getModelMappingFromConfig } from '../base-config-loader';
 import { loadOrCreateUnifiedConfig } from '../../config/unified-config-loader';

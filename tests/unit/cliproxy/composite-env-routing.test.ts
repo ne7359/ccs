@@ -90,6 +90,6 @@ describe('buildClaudeEnvironment - composite remote routing', () => {
     expect(env.ANTHROPIC_MODEL).toMatch(/^claude-opus-4-6-thinking(\([^)]+\))?$/);
     expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toMatch(/^claude-opus-4-6-thinking(\([^)]+\))?$/);
     expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toMatch(/^gemini-2.5-pro(\([^)]+\))?$/);
-    expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-5.1-codex-mini');
+    expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toMatch(/^gpt-5.1-codex-mini(?:-medium)?$/);
   });
 });

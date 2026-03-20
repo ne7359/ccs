@@ -8,7 +8,7 @@
 import { Router, Request, Response } from 'express';
 import ProfileRegistry from '../../auth/profile-registry';
 import InstanceManager from '../../management/instance-manager';
-import { isUnifiedMode } from '../../config/unified-config-loader';
+import { isUnifiedMode, loadOrCreateUnifiedConfig } from '../../config/unified-config-loader';
 import {
   getAllAccountsSummary,
   setDefaultAccount as setCliproxyDefault,
@@ -30,12 +30,28 @@ import {
   parseCliproxyKey,
   type MergedAccountEntry,
 } from './account-route-helpers';
+import type { AccountConfig } from '../../config/unified-config-types';
 
 const router = Router();
-const registry = new ProfileRegistry();
-const instanceMgr = new InstanceManager();
+
+function createProfileRegistry(): ProfileRegistry {
+  return new ProfileRegistry();
+}
+
+function createInstanceManager(): InstanceManager {
+  return new InstanceManager();
+}
+
+function getUnifiedAccountsRaw(): Record<string, AccountConfig> {
+  if (!isUnifiedMode()) {
+    return {};
+  }
+
+  return loadOrCreateUnifiedConfig().accounts;
+}
 
 function hasAuthAccount(name: string): boolean {
+  const registry = createProfileRegistry();
   return registry.hasAccountUnified(name) || registry.hasProfile(name);
 }
 
@@ -44,8 +60,11 @@ function hasAuthAccount(name: string): boolean {
  */
 router.get('/', (_req: Request, res: Response): void => {
   try {
+    const registry = createProfileRegistry();
+
     // Get profiles from both legacy and unified config (same logic as CLI)
     const legacyProfiles = registry.getAllProfiles();
+    const rawUnifiedAccounts = getUnifiedAccountsRaw();
     const unifiedAccounts = registry.getAllAccountsUnified();
 
     // Get CLIProxy OAuth accounts (gemini, codex, agy, etc.)
@@ -76,11 +95,12 @@ router.get('/', (_req: Request, res: Response): void => {
 
     // Override with unified config accounts (takes precedence)
     for (const [name, account] of Object.entries(unifiedAccounts)) {
+      const rawAccount = rawUnifiedAccounts[name];
       const contextPolicy = resolveAccountContextPolicy(account);
       const hasExplicitContextMode =
-        account.context_mode === 'isolated' || account.context_mode === 'shared';
+        rawAccount?.context_mode === 'isolated' || rawAccount?.context_mode === 'shared';
       const hasExplicitContinuityMode =
-        account.continuity_mode === 'standard' || account.continuity_mode === 'deeper';
+        rawAccount?.continuity_mode === 'standard' || rawAccount?.continuity_mode === 'deeper';
       merged[name] = {
         type: 'account',
         created: account.created,
@@ -138,6 +158,7 @@ router.get('/', (_req: Request, res: Response): void => {
  */
 router.post('/default', (req: Request, res: Response): void => {
   try {
+    const registry = createProfileRegistry();
     const { name } = req.body;
 
     if (!name) {
@@ -175,6 +196,8 @@ router.post('/default', (req: Request, res: Response): void => {
  */
 router.put('/:name/context', async (req: Request, res: Response): Promise<void> => {
   try {
+    const registry = createProfileRegistry();
+    const instanceMgr = createInstanceManager();
     const { name } = req.params;
 
     if (!name) {
@@ -310,6 +333,7 @@ router.put('/:name/context', async (req: Request, res: Response): Promise<void> 
  */
 router.delete('/reset-default', (_req: Request, res: Response): void => {
   try {
+    const registry = createProfileRegistry();
     if (isUnifiedMode()) {
       registry.clearDefaultUnified();
     } else {
@@ -326,6 +350,8 @@ router.delete('/reset-default', (_req: Request, res: Response): void => {
  */
 router.delete('/:name', async (req: Request, res: Response): Promise<void> => {
   try {
+    const registry = createProfileRegistry();
+    const instanceMgr = createInstanceManager();
     const { name } = req.params;
 
     if (!name) {

@@ -10,7 +10,6 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { getCcsDir } from '../utils/config-manager';
 import {
-  UnifiedConfig,
   isUnifiedConfig,
   createEmptyUnifiedConfig,
   UNIFIED_CONFIG_VERSION,
@@ -23,6 +22,9 @@ import {
   DEFAULT_THINKING_CONFIG,
   DEFAULT_DASHBOARD_AUTH_CONFIG,
   DEFAULT_IMAGE_ANALYSIS_CONFIG,
+} from './unified-config-types';
+import type {
+  UnifiedConfig,
   CLIProxySafetyConfig,
   GlobalEnvConfig,
   ThinkingConfig,

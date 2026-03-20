@@ -9,7 +9,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { CLIProxyProvider, ProviderModelMapping } from './types';
+import type { CLIProxyProvider, ProviderModelMapping } from './types';
 
 /** Base settings file structure */
 interface BaseSettings {

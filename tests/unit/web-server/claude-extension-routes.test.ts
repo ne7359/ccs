@@ -14,18 +14,30 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { Server } from 'http';
-import claudeExtensionRoutes from '../../../src/web-server/routes/claude-extension-routes';
-import SharedManager from '../../../src/management/shared-manager';
-import { createEmptyUnifiedConfig } from '../../../src/config/unified-config-types';
-import { saveUnifiedConfig } from '../../../src/config/unified-config-loader';
 
 describe('web-server claude-extension-routes', () => {
   let server: Server;
   let baseUrl = '';
   let tempHome = '';
   let originalCcsHome: string | undefined;
+  let originalClaudeConfigDir: string | undefined;
+  let setGlobalConfigDir: (dir: string | undefined) => void;
+  let claudeExtensionRoutes: ReturnType<typeof express.Router>;
+  let SharedManager: typeof import('../../../src/management/shared-manager').default;
+  let createEmptyUnifiedConfig: typeof import('../../../src/config/unified-config-types').createEmptyUnifiedConfig;
+  let saveUnifiedConfig: typeof import('../../../src/config/unified-config-loader').saveUnifiedConfig;
 
   beforeAll(async () => {
+    originalCcsHome = process.env.CCS_HOME;
+    originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    ({ setGlobalConfigDir } = await import('../../../src/utils/config-manager'));
+    ({ default: SharedManager } = await import('../../../src/management/shared-manager'));
+    ({ createEmptyUnifiedConfig } = await import('../../../src/config/unified-config-types'));
+    ({ saveUnifiedConfig } = await import('../../../src/config/unified-config-loader'));
+    ({ default: claudeExtensionRoutes } = await import(
+      '../../../src/web-server/routes/claude-extension-routes'
+    ));
+
     const app = express();
     app.use(express.json());
     app.use('/api/claude-extension', claudeExtensionRoutes);
@@ -49,12 +61,20 @@ describe('web-server claude-extension-routes', () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    setGlobalConfigDir(undefined);
+
+    if (originalCcsHome !== undefined) process.env.CCS_HOME = originalCcsHome;
+    else delete process.env.CCS_HOME;
+
+    if (originalClaudeConfigDir !== undefined) process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+    else delete process.env.CLAUDE_CONFIG_DIR;
   });
 
   beforeEach(() => {
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-claude-extension-routes-'));
-    originalCcsHome = process.env.CCS_HOME;
     process.env.CCS_HOME = tempHome;
+    process.env.CLAUDE_CONFIG_DIR = path.join(tempHome, '.claude');
+    setGlobalConfigDir(path.join(tempHome, '.ccs'));
 
     const ccsDir = path.join(tempHome, '.ccs');
     fs.mkdirSync(ccsDir, { recursive: true });
@@ -110,9 +130,9 @@ describe('web-server claude-extension-routes', () => {
 
   afterEach(() => {
     mock.restore();
-
-    if (originalCcsHome !== undefined) process.env.CCS_HOME = originalCcsHome;
-    else delete process.env.CCS_HOME;
+    setGlobalConfigDir(undefined);
+    delete process.env.CCS_HOME;
+    delete process.env.CLAUDE_CONFIG_DIR;
 
     if (tempHome && fs.existsSync(tempHome)) {
       fs.rmSync(tempHome, { recursive: true, force: true });

@@ -9,12 +9,14 @@ export type { ErrorCode } from '../utils/error-codes';
 /**
  * Log levels
  */
-export enum LogLevel {
-  DEBUG = 'debug',
-  INFO = 'info',
-  WARN = 'warn',
-  ERROR = 'error',
-}
+export const LogLevel = {
+  DEBUG: 'debug',
+  INFO: 'info',
+  WARN: 'warn',
+  ERROR: 'error',
+} as const;
+
+export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
 
 /**
  * Color codes (TTY-aware)

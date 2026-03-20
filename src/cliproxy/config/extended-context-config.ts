@@ -9,7 +9,7 @@
  * - Claude (Anthropic): Opt-in via --1m flag
  */
 
-import { CLIProxyProvider } from '../types';
+import type { CLIProxyProvider } from '../types';
 import { supportsExtendedContext } from '../model-catalog';
 import { warn } from '../../utils/ui';
 import {

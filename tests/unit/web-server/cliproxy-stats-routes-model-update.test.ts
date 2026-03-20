@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { Server } from 'http';
-import cliproxyStatsRoutes from '../../../src/web-server/routes/cliproxy-stats-routes';
 
 function writeSettings(filePath: string, env: Record<string, string>): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -16,8 +15,16 @@ describe('cliproxy-stats-routes model update canonicalization', () => {
   let baseUrl = '';
   let tempHome = '';
   let originalCcsHome: string | undefined;
+  let setGlobalConfigDir: (dir: string | undefined) => void;
+  let cliproxyStatsRoutes: ReturnType<typeof express.Router>;
 
   beforeAll(async () => {
+    originalCcsHome = process.env.CCS_HOME;
+    ({ setGlobalConfigDir } = await import('../../../src/utils/config-manager'));
+    ({ default: cliproxyStatsRoutes } = await import(
+      '../../../src/web-server/routes/cliproxy-stats-routes'
+    ));
+
     const app = express();
     app.use(express.json());
     app.use('/api/cliproxy', cliproxyStatsRoutes);
@@ -41,20 +48,24 @@ describe('cliproxy-stats-routes model update canonicalization', () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-  });
+    setGlobalConfigDir(undefined);
 
-  beforeEach(() => {
-    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-cliproxy-model-route-'));
-    originalCcsHome = process.env.CCS_HOME;
-    process.env.CCS_HOME = tempHome;
-  });
-
-  afterEach(() => {
     if (originalCcsHome !== undefined) {
       process.env.CCS_HOME = originalCcsHome;
     } else {
       delete process.env.CCS_HOME;
     }
+  });
+
+  beforeEach(() => {
+    tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-cliproxy-model-route-'));
+    process.env.CCS_HOME = tempHome;
+    setGlobalConfigDir(path.join(tempHome, '.ccs'));
+  });
+
+  afterEach(() => {
+    setGlobalConfigDir(undefined);
+    delete process.env.CCS_HOME;
 
     if (tempHome && fs.existsSync(tempHome)) {
       fs.rmSync(tempHome, { recursive: true, force: true });

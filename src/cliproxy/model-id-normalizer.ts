@@ -5,7 +5,7 @@
  * model version formats (e.g., 4.6 vs 4-6).
  */
 
-import { CLIProxyProvider } from './types';
+import type { CLIProxyProvider } from './types';
 
 /** Env vars that carry model identifiers. */
 export const MODEL_ENV_VAR_KEYS = [

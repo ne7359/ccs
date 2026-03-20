@@ -1,7 +1,7 @@
 import * as os from 'os';
 
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-const WILDCARD_HOSTS = new Set(['0.0.0.0', '::', '[::]']);
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+const WILDCARD_HOSTS = new Set(['0.0.0.0', '::']);
 
 interface NetworkInterfaceCandidate {
   address: string;

@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import { getCcsDir } from '../../utils/config-manager';
-import { CLIProxyProvider } from '../types';
+import type { CLIProxyProvider } from '../types';
 import { CLIPROXY_DEFAULT_PORT } from './port-manager';
 
 /**

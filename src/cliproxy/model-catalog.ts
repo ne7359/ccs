@@ -5,7 +5,7 @@
  * Models are mapped to their internal names used by the proxy backend.
  */
 
-import { CLIProxyProvider } from './types';
+import type { CLIProxyProvider } from './types';
 import {
   isAntigravityProvider,
   migrateDeniedAntigravityModelAliases,
