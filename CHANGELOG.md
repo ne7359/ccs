@@ -1,3 +1,33 @@
+## [7.56.0](https://github.com/kaitranntt/ccs/compare/v7.55.0...v7.56.0) (2026-03-22)
+
+### Features
+
+* **cliproxy:** add dedicated ai providers workspace ([50c55bb](https://github.com/kaitranntt/ccs/commit/50c55bb108dd03e7e9443a7abea9e2c48b7f3e64))
+* **cliproxy:** redesign ai providers configuration ([77fcd45](https://github.com/kaitranntt/ccs/commit/77fcd45173d4f6074503da33af15c986843b1f91)), closes [#649](https://github.com/kaitranntt/ccs/issues/649)
+* **profiles:** add cliproxy api profile bridge ([287691f](https://github.com/kaitranntt/ccs/commit/287691fa04d3aba136650c55fa13644fe31ef76c)), closes [#649](https://github.com/kaitranntt/ccs/issues/649)
+
+### Bug Fixes
+
+* **cliproxy:** remove control panel setup notice ([e2ca9c2](https://github.com/kaitranntt/ccs/commit/e2ca9c240727893a6ec10fa25c00c0e8ada88623)), closes [#649](https://github.com/kaitranntt/ccs/issues/649)
+* **codex:** recover unsupported live model switches ([9fac214](https://github.com/kaitranntt/ccs/commit/9fac214051a2e30fd58ea7341ebd7f9de112f426))
+* **management:** harden marketplace state transitions ([fc02c4b](https://github.com/kaitranntt/ccs/commit/fc02c4b9682af6205735bdfd221dfb668f1821ae))
+* **management:** localize marketplace registry per instance ([54ea36f](https://github.com/kaitranntt/ccs/commit/54ea36fd18955778a8c15bd825df22618593d9ed))
+* **management:** serialize lifecycle maintenance paths ([36e8ed5](https://github.com/kaitranntt/ccs/commit/36e8ed5d878be13b1dfd7ea1a6e890d575a09360))
+* **management:** serialize marketplace registry reconciliation ([68a5d17](https://github.com/kaitranntt/ccs/commit/68a5d17327e4fc5e3bd5c9fcb48e1bcd96dd92c4))
+* restore parallel-safe validate pipeline ([04fd8ff](https://github.com/kaitranntt/ccs/commit/04fd8ff01997c7475cab0247f8e2ab86e9f0588c))
+* stabilize validate pipeline and cliproxy route tests ([0d90f04](https://github.com/kaitranntt/ccs/commit/0d90f04f3e45c3bc90a74bb8b48677c4d0dd0376))
+* **ui:** reflect cliproxy preset plan tiers ([ef36ad4](https://github.com/kaitranntt/ccs/commit/ef36ad4600282aae7680316a084ec1eb2d74ab63))
+* **ui:** sync codex model catalog defaults ([2114a4b](https://github.com/kaitranntt/ccs/commit/2114a4b96e1b78e8e4f5a00bd29a866cd147348e))
+
+### Documentation
+
+* **architecture:** document marketplace registry ownership ([242a095](https://github.com/kaitranntt/ccs/commit/242a095edb9e32a51fa3f487e9c1fd98dc127e1f))
+* **cliproxy:** document api profile bridge flow ([7d87cfa](https://github.com/kaitranntt/ccs/commit/7d87cfa4482de239a3c2a23257885a882ef53192)), closes [#649](https://github.com/kaitranntt/ccs/issues/649) [#649](https://github.com/kaitranntt/ccs/issues/649)
+
+### Tests
+
+* **management:** cover plugin layout sync lock ([fab0501](https://github.com/kaitranntt/ccs/commit/fab05011f19f5059a09292d2fbb09e8b5cc62f24))
+
 ## [7.55.0](https://github.com/kaitranntt/ccs/compare/v7.54.0...v7.55.0) (2026-03-17)
 
 ### Features
