@@ -102,3 +102,54 @@ describe('resolvePasteCallbackAuthUrl', () => {
     expect(request.headers['Authorization']).toBe('Bearer test-mgmt-key');
   });
 });
+
+describe('getCliAuthNicknameError', () => {
+  it('allows omitted nicknames for no-email providers', async () => {
+    const { getCliAuthNicknameError } = await import(
+      `../../../src/cliproxy/auth/oauth-handler?cli-nickname-empty=${Date.now()}`
+    );
+
+    expect(getCliAuthNicknameError('kiro', undefined, [])).toBeNull();
+    expect(getCliAuthNicknameError('ghcp', undefined, [])).toBeNull();
+  });
+
+  it('rejects invalid supplied nicknames before OAuth starts', async () => {
+    const { getCliAuthNicknameError } = await import(
+      `../../../src/cliproxy/auth/oauth-handler?cli-nickname-invalid=${Date.now()}`
+    );
+
+    expect(getCliAuthNicknameError('kiro', 'bad nickname', [])).toBe(
+      'Nickname cannot contain whitespace'
+    );
+  });
+
+  it('rejects supplied nicknames that collide with existing ids or nicknames', async () => {
+    const { getCliAuthNicknameError } = await import(
+      `../../../src/cliproxy/auth/oauth-handler?cli-nickname-conflict=${Date.now()}`
+    );
+    const existingAccounts = [
+      { id: 'github-ABC123', nickname: 'work' },
+      { id: 'ghcp-2', nickname: 'personal' },
+    ];
+
+    expect(getCliAuthNicknameError('ghcp', 'github-ABC123', existingAccounts)).toBe(
+      'Nickname "github-ABC123" is already in use. Choose a different one.'
+    );
+    expect(getCliAuthNicknameError('ghcp', 'work', existingAccounts)).toBe(
+      'Nickname "work" is already in use. Choose a different one.'
+    );
+  });
+
+  it('allows reauth when the supplied nickname already belongs to the same account', async () => {
+    const { getCliAuthNicknameError } = await import(
+      `../../../src/cliproxy/auth/oauth-handler?cli-nickname-reauth=${Date.now()}`
+    );
+    const existingAccounts = [
+      { id: 'github-ABC123', nickname: 'work' },
+      { id: 'amazon-XYZ789', nickname: 'personal' },
+    ];
+
+    expect(getCliAuthNicknameError('kiro', 'work', existingAccounts, 'github-ABC123')).toBeNull();
+    expect(getCliAuthNicknameError('kiro', 'github-ABC123', existingAccounts, 'github-ABC123')).toBeNull();
+  });
+});

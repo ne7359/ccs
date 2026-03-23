@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   getStartAuthFailureMessage,
+  getStartAuthNicknameError,
   getStartUrlUnsupportedReason,
 } from '../../../src/web-server/routes/cliproxy-auth-routes';
 
@@ -41,5 +42,46 @@ describe('cliproxy-auth-routes start failure messaging', () => {
   it('keeps generic failure text for other providers', () => {
     expect(getStartAuthFailureMessage('gemini')).toBe('Authentication failed or was cancelled');
     expect(getStartAuthFailureMessage('kiro')).toBe('Authentication failed or was cancelled');
+  });
+});
+
+describe('cliproxy-auth-routes nickname validation', () => {
+  it('allows Kiro and GHCP start requests without a nickname', () => {
+    expect(getStartAuthNicknameError('kiro', undefined, [])).toBeNull();
+    expect(getStartAuthNicknameError('ghcp', undefined, [])).toBeNull();
+  });
+
+  it('rejects invalid supplied nicknames for no-email providers', () => {
+    expect(getStartAuthNicknameError('kiro', 'bad nickname', [])).toEqual({
+      error: 'Nickname cannot contain whitespace',
+      code: 'INVALID_NICKNAME',
+    });
+  });
+
+  it('rejects nicknames that collide with an existing account id or nickname', () => {
+    const existingAccounts = [
+      { id: 'github-ABC123', nickname: 'work' },
+      { id: 'ghcp-2', nickname: 'personal' },
+    ];
+
+    expect(getStartAuthNicknameError('ghcp', 'github-ABC123', existingAccounts)).toEqual({
+      error: 'Nickname "github-ABC123" is already in use. Choose a different one.',
+      code: 'NICKNAME_EXISTS',
+    });
+
+    expect(getStartAuthNicknameError('ghcp', 'work', existingAccounts)).toEqual({
+      error: 'Nickname "work" is already in use. Choose a different one.',
+      code: 'NICKNAME_EXISTS',
+    });
+  });
+
+  it('allows reauth when the nickname already belongs to the same account', () => {
+    const existingAccounts = [
+      { id: 'github-ABC123', nickname: 'work' },
+      { id: 'ghcp-2', nickname: 'personal' },
+    ];
+
+    expect(getStartAuthNicknameError('kiro', 'work', existingAccounts, 'github-ABC123')).toBeNull();
+    expect(getStartAuthNicknameError('kiro', 'github-ABC123', existingAccounts, 'github-ABC123')).toBeNull();
   });
 });
