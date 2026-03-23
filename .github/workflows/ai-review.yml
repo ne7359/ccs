@@ -131,6 +131,7 @@ jobs:
     name: Claude Code Review
     needs: prepare
     if: needs.prepare.result == 'success'
+    timeout-minutes: 20
     runs-on: ${{ fromJSON(needs.prepare.outputs.runs_on) }}
     permissions:
       contents: read
@@ -151,11 +152,20 @@ jobs:
       DISABLE_TELEMETRY: '1'
       CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000'
       MAX_THINKING_TOKENS: '32000'
+      # Isolate Claude state per job so parallel self-hosted runners do not
+      # share ~/.claude config or ~/.local/state/claude locks.
+      HOME: ${{ runner.temp }}/claude-home
+      XDG_CONFIG_HOME: ${{ runner.temp }}/xdg-config
+      XDG_CACHE_HOME: ${{ runner.temp }}/xdg-cache
+      XDG_STATE_HOME: ${{ runner.temp }}/xdg-state
+      REVIEW_OUTPUT_FILE: ${{ runner.temp }}/pr_review.md
+      REVIEW_COMMENT_FILE: ${{ runner.temp }}/pr_review_comment.md
 
     steps:
-      - name: Clear Claude install locks
-        if: needs.prepare.outputs.contributor_source == 'internal'
-        run: rm -rf ~/.local/state/claude/locks/* 2>/dev/null || true
+      - name: Prepare isolated Claude runtime
+        run: |
+          mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME"
+          rm -f "$REVIEW_OUTPUT_FILE" "$REVIEW_COMMENT_FILE"
 
       - name: Generate App Token
         id: app-token
@@ -229,26 +239,60 @@ jobs:
 
             ${{ steps.review-prompt.outputs.content }}
 
-            ## IMPORTANT: Posting the Review
-            After completing your analysis, post the review as a PR comment.
-
-            STEP 1: First, use the Read tool to check if pr_review.md exists (it may not exist yet, that's OK)
-            STEP 2: Use the Write tool to write your review to pr_review.md in the current working directory
-            STEP 3: Post with: gh pr comment ${{ needs.prepare.outputs.pr_number }} --body-file pr_review.md
+            ## IMPORTANT: Writing the Review
+            After completing your analysis, write the final review markdown to `${{ env.REVIEW_OUTPUT_FILE }}`.
+            Do NOT post any GitHub comments yourself. The workflow will publish the saved file.
 
             End your review with:
             > 🤖 Reviewed by `${{ env.REVIEW_MODEL }}`
 
             IMPORTANT RULES:
-            - Write to pr_review.md (in working directory), NOT /tmp/pr_review.md
+            - Overwrite `${{ env.REVIEW_OUTPUT_FILE }}`
             - Do NOT use shell operators like || or && in bash commands
             - Do NOT use heredoc (<<) syntax in bash commands
             - Use simple, single-purpose bash commands only
 
           claude_args: |
             --model ${{ env.REVIEW_MODEL }}
-            --allowedTools "Edit,Glob,Grep,LS,Read,Write,Bash(gh pr comment *),Bash(gh pr diff *),Bash(gh pr view *),Bash(gh issue view *),Bash(gh api *),Bash(git diff *),Bash(git log *),Bash(git status *),Bash(cat *),Bash(ls *),Bash(rm pr_review.md)"
-        continue-on-error: true
+            --allowedTools "Edit,Glob,Grep,LS,Read,Write,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh issue view *),Bash(git diff *),Bash(git log *),Bash(git status *),Bash(cat *),Bash(ls *)"
+
+      - name: Publish review comment
+        if: steps.claude-review.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REVIEW_MARKER: >-
+            <!-- ccs-ai-review
+            run:${{ github.run_id }}
+            attempt:${{ github.run_attempt }}
+            pr:${{ needs.prepare.outputs.pr_number }}
+            sha:${{ needs.prepare.outputs.head_sha }} -->
+        run: |
+          if [ ! -s "$REVIEW_OUTPUT_FILE" ]; then
+            echo "::error::Claude review finished without writing $REVIEW_OUTPUT_FILE"
+            exit 1
+          fi
+
+          {
+            printf '%s\n\n' "$REVIEW_MARKER"
+            cat "$REVIEW_OUTPUT_FILE"
+          } > "$REVIEW_COMMENT_FILE"
+
+          COMMENTS_JSON="$(gh api "repos/${{ github.repository }}/issues/${{ needs.prepare.outputs.pr_number }}/comments?per_page=100")"
+          COMMENT_ID="$(
+            printf '%s' "$COMMENTS_JSON" |
+              jq -r --arg marker "$REVIEW_MARKER" '.[] | select(.body | contains($marker)) | .id' |
+              tail -n 1
+          )"
+
+          if [ -n "$COMMENT_ID" ]; then
+            jq -Rs '{body: .}' < "$REVIEW_COMMENT_FILE" |
+              gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" --method PATCH --input -
+            echo "[i] Updated review comment ${COMMENT_ID} for PR #${{ needs.prepare.outputs.pr_number }}"
+          else
+            jq -Rs '{body: .}' < "$REVIEW_COMMENT_FILE" |
+              gh api "repos/${{ github.repository }}/issues/${{ needs.prepare.outputs.pr_number }}/comments" --method POST --input -
+            echo "[i] Posted review comment for PR #${{ needs.prepare.outputs.pr_number }}"
+          fi
 
       - name: Add success reaction
         if: success() && github.event_name == 'issue_comment'
@@ -265,3 +309,7 @@ jobs:
             --method POST -f content=confused
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Cleanup review artifacts
+        if: always()
+        run: rm -f "$REVIEW_OUTPUT_FILE" "$REVIEW_COMMENT_FILE"
