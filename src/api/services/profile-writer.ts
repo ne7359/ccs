@@ -7,11 +7,7 @@ import * as path from 'path';
 import { getCcsDir, getConfigPath, loadConfigSafe } from '../../utils/config-manager';
 import { expandPath } from '../../utils/helpers';
 import { validateApiName } from './validation-service';
-import {
-  loadOrCreateUnifiedConfig,
-  saveUnifiedConfig,
-  isUnifiedMode,
-} from '../../config/unified-config-loader';
+import { mutateUnifiedConfig, isUnifiedMode } from '../../config/unified-config-loader';
 import { ensureProfileHooks } from '../../utils/websearch/profile-hook-injector';
 import type { TargetType } from '../../targets/target-adapter';
 import { resolveDroidProvider } from '../../targets/droid-provider';
@@ -198,13 +194,13 @@ function createApiProfileUnified(
   // Inject WebSearch hooks into profile settings
   ensureProfileHooks(name);
 
-  const config = loadOrCreateUnifiedConfig();
-  config.profiles[name] = {
-    type: 'api',
-    settings: `~/.ccs/${settingsFile}`,
-    ...(target !== 'claude' && { target }),
-  };
-  saveUnifiedConfig(config);
+  mutateUnifiedConfig((config) => {
+    config.profiles[name] = {
+      type: 'api',
+      settings: `~/.ccs/${settingsFile}`,
+      ...(target !== 'claude' && { target }),
+    };
+  });
 }
 
 /** Create a new API profile */
@@ -308,17 +304,17 @@ export function updateApiProfileTarget(
 ): UpdateApiProfileTargetResult {
   try {
     if (isUnifiedMode()) {
-      const config = loadOrCreateUnifiedConfig();
-      if (!config.profiles[name]) {
-        return { success: false, error: `API profile not found: ${name}` };
-      }
+      mutateUnifiedConfig((config) => {
+        if (!config.profiles[name]) {
+          throw new Error(`API profile not found: ${name}`);
+        }
 
-      if (target === 'claude') {
-        delete config.profiles[name].target;
-      } else {
-        config.profiles[name].target = target;
-      }
-      saveUnifiedConfig(config);
+        if (target === 'claude') {
+          delete config.profiles[name].target;
+        } else {
+          config.profiles[name].target = target;
+        }
+      });
       return { success: true, target };
     }
 
@@ -357,30 +353,26 @@ export function updateApiProfileTarget(
 
 /** Remove API profile from unified config */
 function removeApiProfileUnified(name: string): void {
-  const config = loadOrCreateUnifiedConfig();
-  const profile = config.profiles[name];
+  mutateUnifiedConfig((config) => {
+    const profile = config.profiles[name];
 
-  if (!profile) {
-    throw new Error(`API profile not found: ${name}`);
-  }
-
-  // Delete the settings file if it exists.
-  // Uses expandPath() for cross-platform path handling.
-  if (profile.settings) {
-    const settingsPath = expandPath(profile.settings);
-    if (fs.existsSync(settingsPath)) {
-      fs.unlinkSync(settingsPath);
+    if (!profile) {
+      throw new Error(`API profile not found: ${name}`);
     }
-  }
 
-  delete config.profiles[name];
+    if (profile.settings) {
+      const settingsPath = expandPath(profile.settings);
+      if (fs.existsSync(settingsPath)) {
+        fs.unlinkSync(settingsPath);
+      }
+    }
 
-  // Clear default if it was the deleted profile
-  if (config.default === name) {
-    config.default = undefined;
-  }
+    delete config.profiles[name];
 
-  saveUnifiedConfig(config);
+    if (config.default === name) {
+      config.default = undefined;
+    }
+  });
 }
 
 /** Remove API profile from legacy config */

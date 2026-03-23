@@ -1,6 +1,6 @@
 # Dashboard Authentication CLI
 
-Last Updated: 2026-03-17
+Last Updated: 2026-03-23
 
 CLI commands for managing CCS dashboard authentication.
 
@@ -9,6 +9,8 @@ CLI commands for managing CCS dashboard authentication.
 The CCS dashboard (`ccs config`) can be protected with username/password authentication. This is useful whenever the dashboard is reachable from another device, including when the runtime's default bind is network-accessible or when you explicitly bind it beyond loopback with `ccs config --host 0.0.0.0`.
 
 Authentication is **disabled by default** for backward compatibility. Use the CLI to configure and enable it.
+
+When auth stays disabled, CCS now applies a localhost-only fallback on sensitive management endpoints. Remote devices can still open the dashboard UI when you intentionally bind it beyond loopback, but write-capable routes such as AI Provider management and CLIProxy auth/status helpers reject non-loopback requests until you enable dashboard auth.
 
 ## Account Context Modes (Related Feature)
 
@@ -180,7 +182,8 @@ dashboard_auth:
 1. **Bcrypt hashing**: Passwords are hashed with bcrypt (10 rounds) before storage
 2. **Session cookies**: Sessions use HTTP-only cookies (not accessible via JavaScript)
 3. **Rate limiting**: Login attempts are rate-limited (5 per 15 minutes)
-4. **File permissions**: Config file is created with 0o600 permissions
+4. **Fail-closed remote writes**: When auth is disabled, sensitive management routes allow localhost only
+5. **File permissions**: Config file is created with 0o600 permissions
 
 ## Troubleshooting
 

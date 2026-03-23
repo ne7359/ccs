@@ -23,7 +23,6 @@ import {
   resumeAccount as resumeAccountFn,
   touchAccount,
   hasAccountNameConflict,
-  findAccountNameMatch,
   PROVIDERS_WITHOUT_EMAIL,
   validateNickname,
 } from '../../cliproxy/account-manager';
@@ -53,6 +52,7 @@ import {
   isAntigravityResponsibilityBypassEnabled,
 } from '../../cliproxy/antigravity-responsibility';
 import { createRouteErrorHelpers } from './route-helpers';
+import { requireLocalAccessWhenAuthDisabled } from '../middleware/auth-middleware';
 
 const router = Router();
 const MANUAL_AUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -65,6 +65,18 @@ const pendingManualAuthState = new Map<
 const validProviders: CLIProxyProvider[] = [...CLIPROXY_PROFILES];
 
 const { respondInternalError } = createRouteErrorHelpers('cliproxy-auth-routes');
+
+router.use((req: Request, res: Response, next) => {
+  if (
+    requireLocalAccessWhenAuthDisabled(
+      req,
+      res,
+      'CLIProxy auth endpoints require localhost access when dashboard auth is disabled.'
+    )
+  ) {
+    next();
+  }
+});
 
 function pruneExpiredManualAuthState(now = Date.now()): void {
   for (const [state, pending] of pendingManualAuthState.entries()) {
@@ -147,6 +159,13 @@ export function getStartAuthFailureMessage(provider: CLIProxyProvider): string {
     return 'Authentication failed, was cancelled, or GitHub Copilot verification did not complete. Ensure the account has an active Copilot subscription and retry.';
   }
   return 'Authentication failed or was cancelled';
+}
+
+function getManualCallbackRegistrationError(provider: CLIProxyProvider): string {
+  if (PROVIDERS_WITHOUT_EMAIL.includes(provider)) {
+    return 'Authenticated token could not be matched to a new account. Retry the flow and choose a different nickname if needed.';
+  }
+  return 'Authenticated token could not be registered. Retry the flow.';
 }
 
 export function getStartAuthNicknameError(
@@ -504,12 +523,10 @@ router.post('/:provider/start', async (req: Request, res: Response): Promise<voi
   }
 
   const existingAccounts = getProviderAccounts(provider as CLIProxyProvider);
-  const existingNameMatch = nickname ? findAccountNameMatch(existingAccounts, nickname) : null;
   const nicknameError = getStartAuthNicknameError(
     provider as CLIProxyProvider,
     nickname,
-    existingAccounts,
-    existingNameMatch?.id
+    existingAccounts
   );
   if (nicknameError) {
     res.status(400).json(nicknameError);
@@ -727,12 +744,10 @@ router.post('/:provider/start-url', async (req: Request, res: Response): Promise
   }
 
   const existingAccounts = getProviderAccounts(provider as CLIProxyProvider);
-  const existingNameMatch = nickname ? findAccountNameMatch(existingAccounts, nickname) : null;
   const nicknameError = getStartAuthNicknameError(
     provider as CLIProxyProvider,
     nickname,
-    existingAccounts,
-    existingNameMatch?.id
+    existingAccounts
   );
   if (nicknameError) {
     res.status(400).json(nicknameError);
@@ -780,7 +795,6 @@ router.post('/:provider/start-url', async (req: Request, res: Response): Promise
     if (oauthState) {
       rememberManualAuthState(oauthState, {
         nickname: nickname || undefined,
-        expectedAccountId: existingNameMatch?.id,
       });
     }
 
@@ -927,17 +941,22 @@ router.post('/:provider/submit-callback', async (req: Request, res: Response): P
       pendingManualAuthState.delete(parsed.state);
     }
 
+    if (!account) {
+      res.status(409).json({
+        error: getManualCallbackRegistrationError(provider as CLIProxyProvider),
+      });
+      return;
+    }
+
     res.json({
       success: true,
-      account: account
-        ? {
-            id: account.id,
-            email: account.email,
-            nickname: account.nickname,
-            provider: account.provider,
-            isDefault: account.isDefault,
-          }
-        : null,
+      account: {
+        id: account.id,
+        email: account.email,
+        nickname: account.nickname,
+        provider: account.provider,
+        isDefault: account.isDefault,
+      },
     });
   } catch (error) {
     respondInternalError(res, error, 'CLIProxyAPI not reachable.', 503);

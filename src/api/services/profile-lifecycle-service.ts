@@ -12,11 +12,7 @@ import { getCcsDir, getConfigPath, loadConfigSafe } from '../../utils/config-man
 import { ensureProfileHooks } from '../../utils/websearch/profile-hook-injector';
 import { isSensitiveKey } from '../../utils/sensitive-keys';
 import { isReservedName } from '../../config/reserved-names';
-import {
-  isUnifiedMode,
-  loadOrCreateUnifiedConfig,
-  saveUnifiedConfig,
-} from '../../config/unified-config-loader';
+import { isUnifiedMode, mutateUnifiedConfig } from '../../config/unified-config-loader';
 import { validateApiName } from './validation-service';
 import { listApiProfiles } from './profile-reader';
 import { validateApiProfileSettingsPayload } from './profile-lifecycle-validation';
@@ -64,17 +60,17 @@ function writeJsonObjectAtomically(filePath: string, value: unknown): void {
 
 function registerApiProfileInConfig(name: string, target: TargetType, force = false): void {
   if (isUnifiedMode()) {
-    const config = loadOrCreateUnifiedConfig();
-    if (config.profiles[name] && !force) {
-      throw new Error(`API profile already exists: ${name}`);
-    }
+    mutateUnifiedConfig((config) => {
+      if (config.profiles[name] && !force) {
+        throw new Error(`API profile already exists: ${name}`);
+      }
 
-    config.profiles[name] = {
-      type: 'api',
-      settings: `~/.ccs/${name}${SETTINGS_FILE_SUFFIX}`,
-      ...(target !== 'claude' && { target }),
-    };
-    saveUnifiedConfig(config);
+      config.profiles[name] = {
+        type: 'api',
+        settings: `~/.ccs/${name}${SETTINGS_FILE_SUFFIX}`,
+        ...(target !== 'claude' && { target }),
+      };
+    });
     return;
   }
 

@@ -14,6 +14,7 @@ export interface AiProviderModelAlias {
 }
 
 export interface AiProviderApiKeyEntry {
+  id?: string;
   'api-key': string;
   'base-url'?: string;
   'proxy-url'?: string;
@@ -29,6 +30,7 @@ export interface OpenAICompatApiKeyEntry {
 }
 
 export interface OpenAICompatEntry {
+  id?: string;
   name: string;
   'base-url': string;
   headers?: Record<string, string>;

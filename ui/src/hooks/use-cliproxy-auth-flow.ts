@@ -41,6 +41,8 @@ interface StartAuthOptions {
 const POLL_INTERVAL = 3000;
 /** Maximum polling duration (5 minutes) */
 const MAX_POLL_DURATION = 5 * 60 * 1000;
+/** Fail visibly after repeated poll transport errors instead of retrying forever */
+const MAX_POLL_FAILURES = 3;
 
 async function parseResponseBody(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text();
@@ -69,11 +71,18 @@ const INITIAL_STATE: AuthFlowState = {
 export function useCliproxyAuthFlow() {
   const [state, setState] = useState<AuthFlowState>(INITIAL_STATE);
 
+  const attemptIdRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number>(0);
+  const pollFailureCountRef = useRef(0);
   const openedAuthUrlRef = useRef(false);
   const queryClient = useQueryClient();
+
+  const isActiveAttempt = useCallback(
+    (attemptId: number) => attemptId === attemptIdRef.current,
+    []
+  );
 
   // Clear polling
   const stopPolling = useCallback(() => {
@@ -81,6 +90,7 @@ export function useCliproxyAuthFlow() {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
+    pollFailureCountRef.current = 0;
   }, []);
 
   // Cleanup on unmount
@@ -94,15 +104,21 @@ export function useCliproxyAuthFlow() {
 
   // Poll OAuth status
   const pollStatus = useCallback(
-    async (provider: string, oauthState: string) => {
+    async (provider: string, oauthState: string, attemptId: number) => {
+      if (!isActiveAttempt(attemptId)) {
+        return;
+      }
+
       // Check timeout
       if (Date.now() - pollStartRef.current > MAX_POLL_DURATION) {
         stopPolling();
-        setState((prev) => ({
-          ...prev,
-          isAuthenticating: false,
-          error: 'Authentication timed out. Please try again.',
-        }));
+        if (isActiveAttempt(attemptId)) {
+          setState((prev) => ({
+            ...prev,
+            isAuthenticating: false,
+            error: 'Authentication timed out. Please try again.',
+          }));
+        }
         return;
       }
 
@@ -110,6 +126,10 @@ export function useCliproxyAuthFlow() {
         const response = await fetch(
           `/api/cliproxy/auth/${provider}/status?state=${encodeURIComponent(oauthState)}`
         );
+        if (!isActiveAttempt(attemptId)) {
+          return;
+        }
+
         const data = (await response.json()) as {
           status?: string;
           error?: string;
@@ -118,6 +138,7 @@ export function useCliproxyAuthFlow() {
           verification_url?: string;
           user_code?: string;
         };
+        pollFailureCountRef.current = 0;
 
         if (data.status === 'ok') {
           stopPolling();
@@ -161,11 +182,30 @@ export function useCliproxyAuthFlow() {
           }));
         }
         // status === 'wait' (or pending) means continue polling
-      } catch {
-        // Network error - continue polling
+      } catch (error) {
+        if (!isActiveAttempt(attemptId)) {
+          return;
+        }
+
+        pollFailureCountRef.current += 1;
+        if (pollFailureCountRef.current < MAX_POLL_FAILURES) {
+          return;
+        }
+
+        stopPolling();
+        const message =
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : 'Lost contact with the auth status endpoint';
+        toast.error(message);
+        setState((prev) => ({
+          ...prev,
+          isAuthenticating: false,
+          error: message,
+        }));
       }
     },
-    [queryClient, stopPolling]
+    [isActiveAttempt, queryClient, stopPolling]
   );
 
   const startAuth = useCallback(
@@ -182,9 +222,12 @@ export function useCliproxyAuthFlow() {
       abortControllerRef.current?.abort();
       stopPolling();
       openedAuthUrlRef.current = false;
+      pollFailureCountRef.current = 0;
 
       // Create fresh controller and capture locally to avoid race with cancelAuth
       const controller = new AbortController();
+      const attemptId = attemptIdRef.current + 1;
+      attemptIdRef.current = attemptId;
       abortControllerRef.current = controller;
 
       const flowType =
@@ -219,7 +262,13 @@ export function useCliproxyAuthFlow() {
             signal: controller.signal,
           })
             .then(async (response) => {
+              if (!isActiveAttempt(attemptId)) {
+                return;
+              }
               const data = await parseResponseBody(response);
+              if (!isActiveAttempt(attemptId)) {
+                return;
+              }
               const success = data.success === true;
               if (response.ok && success) {
                 queryClient.invalidateQueries({ queryKey: ['cliproxy-auth'] });
@@ -240,6 +289,9 @@ export function useCliproxyAuthFlow() {
               }
             })
             .catch((error) => {
+              if (!isActiveAttempt(attemptId)) {
+                return;
+              }
               if (error instanceof Error && error.name === 'AbortError') {
                 // Cancelled - state already reset by cancelAuth
                 return;
@@ -261,8 +313,14 @@ export function useCliproxyAuthFlow() {
             body: JSON.stringify(payload),
             signal: controller.signal,
           });
+          if (!isActiveAttempt(attemptId)) {
+            return;
+          }
 
           const data = await parseResponseBody(response);
+          if (!isActiveAttempt(attemptId)) {
+            return;
+          }
           const success = data.success === true;
 
           if (!response.ok || !success) {
@@ -290,11 +348,14 @@ export function useCliproxyAuthFlow() {
           if (oauthState) {
             pollStartRef.current = Date.now();
             pollIntervalRef.current = setInterval(() => {
-              pollStatus(provider, oauthState);
+              void pollStatus(provider, oauthState, attemptId);
             }, POLL_INTERVAL);
           }
         }
       } catch (error) {
+        if (!isActiveAttempt(attemptId)) {
+          return;
+        }
         if (error instanceof Error && error.name === 'AbortError') {
           openedAuthUrlRef.current = false;
           setState(INITIAL_STATE);
@@ -309,11 +370,12 @@ export function useCliproxyAuthFlow() {
         }));
       }
     },
-    [pollStatus, stopPolling, queryClient]
+    [isActiveAttempt, pollStatus, stopPolling, queryClient]
   );
 
   const cancelAuth = useCallback(() => {
     const currentProvider = state.provider;
+    attemptIdRef.current += 1;
     abortControllerRef.current?.abort();
     stopPolling();
     openedAuthUrlRef.current = false;
@@ -329,37 +391,53 @@ export function useCliproxyAuthFlow() {
   const submitCallback = useCallback(
     async (redirectUrl: string) => {
       if (!state.provider) return;
+      const attemptId = attemptIdRef.current;
+      const currentProvider = state.provider;
 
       setState((prev) => ({ ...prev, isSubmittingCallback: true, error: null }));
 
       try {
-        const response = await fetch(`/api/cliproxy/auth/${state.provider}/submit-callback`, {
+        const response = await fetch(`/api/cliproxy/auth/${currentProvider}/submit-callback`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ redirectUrl }),
         });
+        if (!isActiveAttempt(attemptId)) {
+          return;
+        }
 
         const data = await parseResponseBody(response);
+        if (!isActiveAttempt(attemptId)) {
+          return;
+        }
         const success = data.success === true;
+        const hasAccount = typeof data.account === 'object' && data.account !== null;
 
-        if (response.ok && success) {
+        if (response.ok && success && hasAccount) {
           stopPolling();
           queryClient.invalidateQueries({ queryKey: ['cliproxy-auth'] });
           queryClient.invalidateQueries({ queryKey: ['account-quota'] });
-          toast.success(`${state.provider} authentication successful`);
+          toast.success(`${currentProvider} authentication successful`);
           setState(INITIAL_STATE);
         } else {
           const errorMsg =
-            typeof data.error === 'string' ? data.error : 'Callback submission failed';
+            typeof data.error === 'string'
+              ? data.error
+              : success
+                ? 'Authenticated account could not be registered'
+                : 'Callback submission failed';
           throw new Error(errorMsg);
         }
       } catch (error) {
+        if (!isActiveAttempt(attemptId)) {
+          return;
+        }
         const message = error instanceof Error ? error.message : 'Failed to submit callback';
         toast.error(message);
         setState((prev) => ({ ...prev, isSubmittingCallback: false, error: message }));
       }
     },
-    [state.provider, queryClient, stopPolling]
+    [isActiveAttempt, state.provider, queryClient, stopPolling]
   );
 
   return useMemo(

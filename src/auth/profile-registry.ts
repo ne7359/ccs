@@ -3,7 +3,7 @@ import * as path from 'path';
 import { ProfileMetadata } from '../types';
 import {
   loadOrCreateUnifiedConfig,
-  saveUnifiedConfig,
+  mutateUnifiedConfig,
   isUnifiedMode,
 } from '../config/unified-config-loader';
 import type { AccountConfig } from '../config/unified-config-types';
@@ -313,74 +313,72 @@ export class ProfileRegistry {
    * Create account in unified config (config.yaml)
    */
   createAccountUnified(name: string, metadata: CreateMetadata = {}): void {
-    const config = loadOrCreateUnifiedConfig();
-    if (config.accounts[name]) {
-      throw new Error(`Account already exists: ${name}`);
-    }
-    config.accounts[name] = this.normalizeUnifiedAccountConfig({
-      created: new Date().toISOString(),
-      last_used: null,
-      context_mode: metadata.context_mode,
-      context_group: metadata.context_group,
-      continuity_mode: metadata.continuity_mode,
-      bare: metadata.bare,
+    mutateUnifiedConfig((config) => {
+      if (config.accounts[name]) {
+        throw new Error(`Account already exists: ${name}`);
+      }
+      config.accounts[name] = this.normalizeUnifiedAccountConfig({
+        created: new Date().toISOString(),
+        last_used: null,
+        context_mode: metadata.context_mode,
+        context_group: metadata.context_group,
+        continuity_mode: metadata.continuity_mode,
+        bare: metadata.bare,
+      });
     });
-    saveUnifiedConfig(config);
   }
 
   /**
    * Update account metadata in unified config
    */
   updateAccountUnified(name: string, updates: Partial<AccountConfig>): void {
-    const config = loadOrCreateUnifiedConfig();
-    if (!config.accounts[name]) {
-      throw new Error(`Account not found: ${name}`);
-    }
-    config.accounts[name] = this.normalizeUnifiedAccountConfig({
-      ...config.accounts[name],
-      ...updates,
+    mutateUnifiedConfig((config) => {
+      if (!config.accounts[name]) {
+        throw new Error(`Account not found: ${name}`);
+      }
+      config.accounts[name] = this.normalizeUnifiedAccountConfig({
+        ...config.accounts[name],
+        ...updates,
+      });
     });
-    saveUnifiedConfig(config);
   }
 
   /**
    * Remove account from unified config
    */
   removeAccountUnified(name: string): void {
-    const config = loadOrCreateUnifiedConfig();
-    if (!config.accounts[name]) {
-      throw new Error(`Account not found: ${name}`);
-    }
-    delete config.accounts[name];
-    // Clear default if it was the deleted account
-    if (config.default === name) {
-      config.default = undefined;
-    }
-    saveUnifiedConfig(config);
+    mutateUnifiedConfig((config) => {
+      if (!config.accounts[name]) {
+        throw new Error(`Account not found: ${name}`);
+      }
+      delete config.accounts[name];
+      if (config.default === name) {
+        config.default = undefined;
+      }
+    });
   }
 
   /**
    * Set default profile in unified config
    */
   setDefaultUnified(name: string): void {
-    const config = loadOrCreateUnifiedConfig();
-    // Check if exists in accounts, profiles, or cliproxy variants
-    const exists =
-      config.accounts[name] || config.profiles[name] || config.cliproxy?.variants?.[name];
-    if (!exists) {
-      throw new Error(`Profile not found: ${name}`);
-    }
-    config.default = name;
-    saveUnifiedConfig(config);
+    mutateUnifiedConfig((config) => {
+      const exists =
+        config.accounts[name] || config.profiles[name] || config.cliproxy?.variants?.[name];
+      if (!exists) {
+        throw new Error(`Profile not found: ${name}`);
+      }
+      config.default = name;
+    });
   }
 
   /**
    * Clear default profile in unified config (restore original CCS behavior)
    */
   clearDefaultUnified(): void {
-    const config = loadOrCreateUnifiedConfig();
-    config.default = undefined;
-    saveUnifiedConfig(config);
+    mutateUnifiedConfig((config) => {
+      config.default = undefined;
+    });
   }
 
   /**
@@ -418,13 +416,13 @@ export class ProfileRegistry {
    * Update account last_used in unified config
    */
   touchAccountUnified(name: string): void {
-    const config = loadOrCreateUnifiedConfig();
-    if (!config.accounts[name]) {
-      throw new Error(`Account not found: ${name}`);
-    }
-    config.accounts[name].last_used = new Date().toISOString();
-    config.accounts[name] = this.normalizeUnifiedAccountConfig(config.accounts[name]);
-    saveUnifiedConfig(config);
+    mutateUnifiedConfig((config) => {
+      if (!config.accounts[name]) {
+        throw new Error(`Account not found: ${name}`);
+      }
+      config.accounts[name].last_used = new Date().toISOString();
+      config.accounts[name] = this.normalizeUnifiedAccountConfig(config.accounts[name]);
+    });
   }
 
   // ==========================================

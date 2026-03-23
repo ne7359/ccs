@@ -15,11 +15,7 @@ import {
   getAvailableModels,
   getDefaultModel,
 } from '../cursor';
-import {
-  getCursorConfig,
-  loadOrCreateUnifiedConfig,
-  saveUnifiedConfig,
-} from '../config/unified-config-loader';
+import { getCursorConfig, mutateUnifiedConfig } from '../config/unified-config-loader';
 import { DEFAULT_CURSOR_CONFIG } from '../config/unified-config-types';
 import { renderCursorHelp, renderCursorModels, renderCursorStatus } from './cursor-command-display';
 import { ok, fail, info } from '../utils/ui';
@@ -239,14 +235,13 @@ async function handleStop(): Promise<number> {
  * Handle enable subcommand.
  */
 async function handleEnable(): Promise<number> {
-  const config = loadOrCreateUnifiedConfig();
+  mutateUnifiedConfig((config) => {
+    if (!config.cursor) {
+      config.cursor = { ...DEFAULT_CURSOR_CONFIG };
+    }
 
-  if (!config.cursor) {
-    config.cursor = { ...DEFAULT_CURSOR_CONFIG };
-  }
-
-  config.cursor.enabled = true;
-  saveUnifiedConfig(config);
+    config.cursor.enabled = true;
+  });
 
   console.log(ok('Cursor integration enabled'));
   console.log('');
@@ -262,12 +257,11 @@ async function handleEnable(): Promise<number> {
  * Handle disable subcommand.
  */
 async function handleDisable(): Promise<number> {
-  const config = loadOrCreateUnifiedConfig();
-
-  if (config.cursor) {
-    config.cursor.enabled = false;
-    saveUnifiedConfig(config);
-  }
+  mutateUnifiedConfig((config) => {
+    if (config.cursor) {
+      config.cursor.enabled = false;
+    }
+  });
 
   console.log(ok('Cursor integration disabled'));
   return 0;

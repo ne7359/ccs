@@ -9,11 +9,7 @@ import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { getCcsDir } from '../../utils/config-manager';
 import { DEFAULT_CURSOR_CONFIG } from '../../config/unified-config-types';
-import {
-  loadOrCreateUnifiedConfig,
-  saveUnifiedConfig,
-  getCursorConfig,
-} from '../../config/unified-config-loader';
+import { mutateUnifiedConfig, getCursorConfig } from '../../config/unified-config-loader';
 import type { CursorConfig } from '../../config/unified-config-types';
 
 const router = Router();
@@ -184,36 +180,38 @@ router.put('/', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const config = loadOrCreateUnifiedConfig();
     const normalizedModel = parseRequiredModel(updates.model);
+    const config = mutateUnifiedConfig((currentConfig) => {
+      currentConfig.cursor = {
+        enabled: updates.enabled ?? currentConfig.cursor?.enabled ?? DEFAULT_CURSOR_CONFIG.enabled,
+        port: updates.port ?? currentConfig.cursor?.port ?? DEFAULT_CURSOR_CONFIG.port,
+        auto_start:
+          updates.auto_start ??
+          currentConfig.cursor?.auto_start ??
+          DEFAULT_CURSOR_CONFIG.auto_start,
+        ghost_mode:
+          updates.ghost_mode ??
+          currentConfig.cursor?.ghost_mode ??
+          DEFAULT_CURSOR_CONFIG.ghost_mode,
+        model: normalizedModel ?? currentConfig.cursor?.model ?? DEFAULT_CURSOR_CONFIG.model,
+        opus_model:
+          'opus_model' in updates
+            ? parseOptionalModel(updates.opus_model)
+            : currentConfig.cursor?.opus_model,
+        sonnet_model:
+          'sonnet_model' in updates
+            ? parseOptionalModel(updates.sonnet_model)
+            : currentConfig.cursor?.sonnet_model,
+        haiku_model:
+          'haiku_model' in updates
+            ? parseOptionalModel(updates.haiku_model)
+            : currentConfig.cursor?.haiku_model,
+      };
+    });
 
-    // Merge updates with existing config
-    // Only known fields are merged — unknown properties are ignored
-    config.cursor = {
-      enabled: updates.enabled ?? config.cursor?.enabled ?? DEFAULT_CURSOR_CONFIG.enabled,
-      port: updates.port ?? config.cursor?.port ?? DEFAULT_CURSOR_CONFIG.port,
-      auto_start:
-        updates.auto_start ?? config.cursor?.auto_start ?? DEFAULT_CURSOR_CONFIG.auto_start,
-      ghost_mode:
-        updates.ghost_mode ?? config.cursor?.ghost_mode ?? DEFAULT_CURSOR_CONFIG.ghost_mode,
-      model: normalizedModel ?? config.cursor?.model ?? DEFAULT_CURSOR_CONFIG.model,
-      opus_model:
-        'opus_model' in updates
-          ? parseOptionalModel(updates.opus_model)
-          : config.cursor?.opus_model,
-      sonnet_model:
-        'sonnet_model' in updates
-          ? parseOptionalModel(updates.sonnet_model)
-          : config.cursor?.sonnet_model,
-      haiku_model:
-        'haiku_model' in updates
-          ? parseOptionalModel(updates.haiku_model)
-          : config.cursor?.haiku_model,
-    };
-
-    saveUnifiedConfig(config);
-    await syncRawSettingsFromCursorConfig(config.cursor);
-    res.json({ success: true, cursor: config.cursor });
+    const cursorConfig = config.cursor ?? DEFAULT_CURSOR_CONFIG;
+    await syncRawSettingsFromCursorConfig(cursorConfig);
+    res.json({ success: true, cursor: cursorConfig });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -295,19 +293,19 @@ router.put('/raw', (req: Request, res: Response): void => {
 
     // Keep unified config aligned with raw settings edits (parity with Copilot raw editor).
     const parsedPort = parseLocalCursorPort(settings);
-    const config = loadOrCreateUnifiedConfig();
     const env = (settings as { env?: Record<string, unknown> }).env ?? {};
-    const model = parseRequiredModel(env.ANTHROPIC_MODEL) ?? config.cursor?.model;
+    mutateUnifiedConfig((config) => {
+      const model = parseRequiredModel(env.ANTHROPIC_MODEL) ?? config.cursor?.model;
 
-    config.cursor = {
-      ...(config.cursor ?? DEFAULT_CURSOR_CONFIG),
-      ...(parsedPort !== null ? { port: parsedPort } : {}),
-      ...(model ? { model } : {}),
-      opus_model: parseOptionalModel(env.ANTHROPIC_DEFAULT_OPUS_MODEL),
-      sonnet_model: parseOptionalModel(env.ANTHROPIC_DEFAULT_SONNET_MODEL),
-      haiku_model: parseOptionalModel(env.ANTHROPIC_DEFAULT_HAIKU_MODEL),
-    };
-    saveUnifiedConfig(config);
+      config.cursor = {
+        ...(config.cursor ?? DEFAULT_CURSOR_CONFIG),
+        ...(parsedPort !== null ? { port: parsedPort } : {}),
+        ...(model ? { model } : {}),
+        opus_model: parseOptionalModel(env.ANTHROPIC_DEFAULT_OPUS_MODEL),
+        sonnet_model: parseOptionalModel(env.ANTHROPIC_DEFAULT_SONNET_MODEL),
+        haiku_model: parseOptionalModel(env.ANTHROPIC_DEFAULT_HAIKU_MODEL),
+      };
+    });
 
     const stat = fs.statSync(settingsPath);
     res.json({ success: true, mtime: stat.mtimeMs });

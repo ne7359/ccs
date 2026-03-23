@@ -42,13 +42,13 @@ export function useUpdateCliproxyAiProviderEntry() {
   return useMutation({
     mutationFn: ({
       family,
-      index,
+      entryId,
       data,
     }: {
       family: AiProviderFamilyId;
-      index: number;
+      entryId: string;
       data: UpsertAiProviderEntryInput;
-    }) => api.cliproxy.aiProviders.update(family, index, data),
+    }) => api.cliproxy.aiProviders.update(family, entryId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       toast.success('Provider entry updated');
@@ -63,8 +63,8 @@ export function useDeleteCliproxyAiProviderEntry() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ family, index }: { family: AiProviderFamilyId; index: number }) =>
-      api.cliproxy.aiProviders.delete(family, index),
+    mutationFn: ({ family, entryId }: { family: AiProviderFamilyId; entryId: string }) =>
+      api.cliproxy.aiProviders.delete(family, entryId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       toast.success('Provider entry removed');

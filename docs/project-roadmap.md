@@ -1,6 +1,6 @@
 # CCS Project Roadmap
 
-Last Updated: 2026-03-19
+Last Updated: 2026-03-23
 
 Forward-looking roadmap documenting current priorities, GitHub issues, and future feature plans.
 
@@ -41,6 +41,8 @@ All major modularization work is complete. The codebase evolved from monolithic 
 
 ### Recent Fixes
 
+- **2026-03-23**: CLIProxy providers that do not expose an email no longer require a user-supplied nickname on first auth. CCS now derives a stable internal account identifier for Kiro/Copilot-style flows, preserves later rename support, hardens account discovery/registry sync around that identifier, and updates AI Provider CRUD to use stable entry IDs instead of dashboard list indexes.
+- **2026-03-23**: Sensitive dashboard management routes now fail closed to localhost-only access whenever dashboard auth is disabled. Remote access remains available after `ccs config auth setup`, but AI Provider management, CLIProxy auth/status helpers, and other write-capable settings endpoints no longer trust unauthenticated non-loopback requests.
 - **2026-03-19**: **#649** CCS splits CLIProxy provider-key authoring into a dedicated `CLIProxy -> AI Providers` dashboard route. `/cliproxy` now stays focused on OAuth accounts and variants, `/cliproxy/ai-providers` owns Gemini/Codex/Claude/Vertex/OpenAI-compatible key management, and `/providers` stays reserved for CCS-native API Profiles.
 - **2026-03-18**: **#755** Marketplace refresh no longer reuses one shared `known_marketplaces.json` across isolated instances. CCS now keeps marketplace payload directories shared while reconciling per-instance marketplace metadata so Claude Code validation succeeds for alternating or concurrent profiles, including Windows copy fallback.
 - **2026-03-17**: Deprecated user-facing GLMT discovery across CLI help, completions, presets, and docs. Existing `glmt` profiles now run through a compatibility path that normalizes legacy proxy settings to the direct GLM endpoint.

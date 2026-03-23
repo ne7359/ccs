@@ -145,12 +145,8 @@ export function fixHealthIssue(checkId: string): { success: boolean; message: st
       // Use appropriate config based on unified mode
       const { isUnifiedMode } = require('../config/unified-config-loader');
       if (isUnifiedMode()) {
-        const {
-          loadOrCreateUnifiedConfig,
-          saveUnifiedConfig,
-        } = require('../config/unified-config-loader');
-        const config = loadOrCreateUnifiedConfig();
-        saveUnifiedConfig(config);
+        const { mutateUnifiedConfig } = require('../config/unified-config-loader');
+        mutateUnifiedConfig(() => {});
         return { success: true, message: 'Created/updated config.yaml' };
       }
       const configPath = getConfigPath();

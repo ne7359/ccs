@@ -8,7 +8,7 @@
  */
 
 import { randomBytes } from 'crypto';
-import { loadOrCreateUnifiedConfig, saveUnifiedConfig } from '../config/unified-config-loader';
+import { loadOrCreateUnifiedConfig, mutateUnifiedConfig } from '../config/unified-config-loader';
 import { CCS_INTERNAL_API_KEY, CCS_CONTROL_PANEL_SECRET } from './config-generator';
 
 /**
@@ -87,19 +87,17 @@ export function getEffectiveManagementSecret(): string {
  * @param apiKey - New API key (or undefined to reset to default)
  */
 export function setGlobalApiKey(apiKey: string | undefined): void {
-  const config = loadOrCreateUnifiedConfig();
+  mutateUnifiedConfig((config) => {
+    if (!config.cliproxy.auth) {
+      config.cliproxy.auth = {};
+    }
 
-  if (!config.cliproxy.auth) {
-    config.cliproxy.auth = {};
-  }
-
-  if (apiKey === undefined) {
-    delete config.cliproxy.auth.api_key;
-  } else {
-    config.cliproxy.auth.api_key = apiKey;
-  }
-
-  saveUnifiedConfig(config);
+    if (apiKey === undefined) {
+      delete config.cliproxy.auth.api_key;
+    } else {
+      config.cliproxy.auth.api_key = apiKey;
+    }
+  });
 }
 
 /**
@@ -109,19 +107,17 @@ export function setGlobalApiKey(apiKey: string | undefined): void {
  * @param secret - New management secret (or undefined to reset to default)
  */
 export function setGlobalManagementSecret(secret: string | undefined): void {
-  const config = loadOrCreateUnifiedConfig();
+  mutateUnifiedConfig((config) => {
+    if (!config.cliproxy.auth) {
+      config.cliproxy.auth = {};
+    }
 
-  if (!config.cliproxy.auth) {
-    config.cliproxy.auth = {};
-  }
-
-  if (secret === undefined) {
-    delete config.cliproxy.auth.management_secret;
-  } else {
-    config.cliproxy.auth.management_secret = secret;
-  }
-
-  saveUnifiedConfig(config);
+    if (secret === undefined) {
+      delete config.cliproxy.auth.management_secret;
+    } else {
+      config.cliproxy.auth.management_secret = secret;
+    }
+  });
 }
 
 /**
@@ -132,28 +128,26 @@ export function setGlobalManagementSecret(secret: string | undefined): void {
  * @param apiKey - New API key (or undefined to remove override)
  */
 export function setVariantApiKey(variantName: string, apiKey: string | undefined): void {
-  const config = loadOrCreateUnifiedConfig();
-  const variant = config.cliproxy.variants[variantName];
+  mutateUnifiedConfig((config) => {
+    const variant = config.cliproxy.variants[variantName];
 
-  if (!variant) {
-    throw new Error(`Variant '${variantName}' not found`);
-  }
-
-  if (!variant.auth) {
-    variant.auth = {};
-  }
-
-  if (apiKey === undefined) {
-    delete variant.auth.api_key;
-    // Clean up empty auth object
-    if (Object.keys(variant.auth).length === 0) {
-      delete variant.auth;
+    if (!variant) {
+      throw new Error(`Variant '${variantName}' not found`);
     }
-  } else {
-    variant.auth.api_key = apiKey;
-  }
 
-  saveUnifiedConfig(config);
+    if (!variant.auth) {
+      variant.auth = {};
+    }
+
+    if (apiKey === undefined) {
+      delete variant.auth.api_key;
+      if (Object.keys(variant.auth).length === 0) {
+        delete variant.auth;
+      }
+    } else {
+      variant.auth.api_key = apiKey;
+    }
+  });
 }
 
 /**
@@ -161,20 +155,16 @@ export function setVariantApiKey(variantName: string, apiKey: string | undefined
  * Removes cliproxy.auth and all variant auth overrides.
  */
 export function resetAuthToDefaults(): void {
-  const config = loadOrCreateUnifiedConfig();
+  mutateUnifiedConfig((config) => {
+    delete config.cliproxy.auth;
 
-  // Remove global auth
-  delete config.cliproxy.auth;
-
-  // Remove all variant auth overrides
-  for (const variantName of Object.keys(config.cliproxy.variants)) {
-    const variant = config.cliproxy.variants[variantName];
-    if (variant.auth) {
-      delete variant.auth;
+    for (const variantName of Object.keys(config.cliproxy.variants)) {
+      const variant = config.cliproxy.variants[variantName];
+      if (variant.auth) {
+        delete variant.auth;
+      }
     }
-  }
-
-  saveUnifiedConfig(config);
+  });
 }
 
 /**

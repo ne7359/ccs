@@ -132,3 +132,32 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   // Unauthorized
   res.status(401).json({ error: 'Authentication required' });
 }
+
+export function isLoopbackRemoteAddress(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().replace(/^\[|\]$/g, '');
+  return (
+    normalized === '::1' ||
+    normalized === '127.0.0.1' ||
+    normalized.startsWith('127.') ||
+    normalized === '::ffff:127.0.0.1' ||
+    normalized.startsWith('::ffff:127.')
+  );
+}
+
+export function requireLocalAccessWhenAuthDisabled(
+  req: Request,
+  res: Response,
+  error = 'This endpoint requires localhost access when dashboard auth is disabled.'
+): boolean {
+  if (getDashboardAuthConfig().enabled) {
+    return true;
+  }
+
+  if (isLoopbackRemoteAddress(req.socket.remoteAddress)) {
+    return true;
+  }
+
+  res.status(403).json({ error });
+  return false;
+}

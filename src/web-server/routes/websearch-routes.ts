@@ -3,11 +3,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import {
-  loadUnifiedConfig,
-  saveUnifiedConfig,
-  getWebSearchConfig,
-} from '../../config/unified-config-loader';
+import { mutateUnifiedConfig, getWebSearchConfig } from '../../config/unified-config-loader';
 import type { WebSearchConfig } from '../../config/unified-config-types';
 import {
   getWebSearchReadiness,
@@ -52,59 +48,45 @@ router.put('/', (req: Request, res: Response): void => {
   }
 
   try {
-    // Load existing config and update websearch section
-    const existingConfig = loadUnifiedConfig();
-    if (!existingConfig) {
-      res.status(500).json({ error: 'Failed to load config' });
-      return;
-    }
-
-    // Merge updates - supports Gemini CLI and Grok CLI
-    existingConfig.websearch = {
-      enabled: enabled ?? existingConfig.websearch?.enabled ?? true,
-      providers: providers
-        ? {
-            gemini: {
-              enabled:
-                providers.gemini?.enabled ??
-                existingConfig.websearch?.providers?.gemini?.enabled ??
-                true,
-              model:
-                providers.gemini?.model ??
-                existingConfig.websearch?.providers?.gemini?.model ??
-                'gemini-2.5-flash',
-              timeout:
-                providers.gemini?.timeout ??
-                existingConfig.websearch?.providers?.gemini?.timeout ??
-                55,
-            },
-            grok: {
-              enabled:
-                providers.grok?.enabled ??
-                existingConfig.websearch?.providers?.grok?.enabled ??
-                false,
-              timeout:
-                providers.grok?.timeout ?? existingConfig.websearch?.providers?.grok?.timeout ?? 55,
-            },
-            opencode: {
-              enabled:
-                providers.opencode?.enabled ??
-                existingConfig.websearch?.providers?.opencode?.enabled ??
-                false,
-              model:
-                providers.opencode?.model ??
-                existingConfig.websearch?.providers?.opencode?.model ??
-                'opencode/grok-code',
-              timeout:
-                providers.opencode?.timeout ??
-                existingConfig.websearch?.providers?.opencode?.timeout ??
-                60,
-            },
-          }
-        : existingConfig.websearch?.providers,
-    };
-
-    saveUnifiedConfig(existingConfig);
+    const existingConfig = mutateUnifiedConfig((config) => {
+      config.websearch = {
+        enabled: enabled ?? config.websearch?.enabled ?? true,
+        providers: providers
+          ? {
+              gemini: {
+                enabled:
+                  providers.gemini?.enabled ?? config.websearch?.providers?.gemini?.enabled ?? true,
+                model:
+                  providers.gemini?.model ??
+                  config.websearch?.providers?.gemini?.model ??
+                  'gemini-2.5-flash',
+                timeout:
+                  providers.gemini?.timeout ?? config.websearch?.providers?.gemini?.timeout ?? 55,
+              },
+              grok: {
+                enabled:
+                  providers.grok?.enabled ?? config.websearch?.providers?.grok?.enabled ?? false,
+                timeout:
+                  providers.grok?.timeout ?? config.websearch?.providers?.grok?.timeout ?? 55,
+              },
+              opencode: {
+                enabled:
+                  providers.opencode?.enabled ??
+                  config.websearch?.providers?.opencode?.enabled ??
+                  false,
+                model:
+                  providers.opencode?.model ??
+                  config.websearch?.providers?.opencode?.model ??
+                  'opencode/grok-code',
+                timeout:
+                  providers.opencode?.timeout ??
+                  config.websearch?.providers?.opencode?.timeout ??
+                  60,
+              },
+            }
+          : config.websearch?.providers,
+      };
+    });
 
     res.json({
       success: true,

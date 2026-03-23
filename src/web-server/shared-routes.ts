@@ -10,8 +10,21 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { getCcsDir } from '../utils/config-manager';
 import { getClaudeConfigDir } from '../utils/claude-config-path';
+import { requireLocalAccessWhenAuthDisabled } from './middleware/auth-middleware';
 
 export const sharedRoutes = Router();
+
+sharedRoutes.use((req: Request, res: Response, next) => {
+  if (
+    requireLocalAccessWhenAuthDisabled(
+      req,
+      res,
+      'Shared-content endpoints require localhost access when dashboard auth is disabled.'
+    )
+  ) {
+    next();
+  }
+});
 
 const MAX_DIRECTORY_TRAVERSAL_DEPTH = 10;
 const MAX_DESCRIPTION_LENGTH = 140;

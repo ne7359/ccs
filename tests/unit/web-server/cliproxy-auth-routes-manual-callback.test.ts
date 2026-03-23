@@ -112,9 +112,9 @@ describe('cliproxy-auth-routes manual callback nickname persistence', () => {
     ]);
 
     const startResponse = await postJson('/api/cliproxy/auth/kiro/start-url', {
-        nickname: 'work',
-        kiroMethod: 'google',
-      });
+      nickname: 'work',
+      kiroMethod: 'google',
+    });
     expect(startResponse.status).toBe(200);
 
     const tokenDir = path.join(tempHome, '.ccs', 'cliproxy', 'auth');
@@ -126,8 +126,8 @@ describe('cliproxy-auth-routes manual callback nickname persistence', () => {
     );
 
     const callbackResponse = await postJson('/api/cliproxy/auth/kiro/submit-callback', {
-        redirectUrl: 'http://localhost/callback?code=abc123&state=state-123',
-      });
+      redirectUrl: 'http://localhost/callback?code=abc123&state=state-123',
+    });
 
     expect(callbackResponse.status).toBe(200);
 
@@ -141,5 +141,38 @@ describe('cliproxy-auth-routes manual callback nickname persistence', () => {
     };
 
     expect(registry.providers.kiro.accounts['github-ABC123']?.nickname).toBe('work');
+  });
+
+  it('returns 409 when callback completes upstream but no account can be registered locally', async () => {
+    mockFetch([
+      {
+        url: /\/v0\/management\/kiro-auth-url\?is_webui=true&method=google$/,
+        response: {
+          auth_url: 'https://auth.example.com/authorize?state=state-409',
+          state: 'state-409',
+        },
+      },
+      {
+        url: /\/v0\/management\/oauth-callback$/,
+        method: 'POST',
+        response: { status: 'ok' },
+      },
+    ]);
+
+    const startResponse = await postJson('/api/cliproxy/auth/kiro/start-url', {
+      nickname: 'work',
+      kiroMethod: 'google',
+    });
+    expect(startResponse.status).toBe(200);
+
+    const callbackResponse = await postJson('/api/cliproxy/auth/kiro/submit-callback', {
+      redirectUrl: 'http://localhost/callback?code=abc123&state=state-409',
+    });
+
+    expect(callbackResponse.status).toBe(409);
+    expect(callbackResponse.body).toEqual({
+      error:
+        'Authenticated token could not be matched to a new account. Retry the flow and choose a different nickname if needed.',
+    });
   });
 });

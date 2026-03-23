@@ -17,8 +17,21 @@ import {
   CliproxyServerConfig,
 } from '../../config/unified-config-types';
 import { CLIPROXY_PROVIDER_IDS } from '../../cliproxy/provider-capabilities';
+import { requireLocalAccessWhenAuthDisabled } from '../middleware/auth-middleware';
 
 const router = Router();
+
+router.use((req: Request, res: Response, next) => {
+  if (
+    requireLocalAccessWhenAuthDisabled(
+      req,
+      res,
+      'CLIProxy server endpoints require localhost access when dashboard auth is disabled.'
+    )
+  ) {
+    next();
+  }
+});
 
 /**
  * GET /api/cliproxy-server - Get proxy configuration

@@ -10,7 +10,7 @@ import {
 } from '../../config/unified-config-types';
 import {
   loadOrCreateUnifiedConfig,
-  saveUnifiedConfig,
+  mutateUnifiedConfig,
   isUnifiedMode,
 } from '../../config/unified-config-loader';
 import { CLIPROXY_DEFAULT_PORT } from '../config-generator';
@@ -171,21 +171,20 @@ export function listVariantsFromConfig(): Record<string, VariantConfig> {
 }
 
 export function saveCompositeVariantUnified(name: string, config: CompositeVariantConfig): void {
-  const unifiedConfig = loadOrCreateUnifiedConfig();
+  mutateUnifiedConfig((unifiedConfig) => {
+    if (!unifiedConfig.cliproxy) {
+      unifiedConfig.cliproxy = {
+        oauth_accounts: {},
+        providers: [...CLIPROXY_SUPPORTED_PROVIDERS],
+        variants: {},
+      };
+    }
+    if (!unifiedConfig.cliproxy.variants) {
+      unifiedConfig.cliproxy.variants = {};
+    }
 
-  if (!unifiedConfig.cliproxy) {
-    unifiedConfig.cliproxy = {
-      oauth_accounts: {},
-      providers: [...CLIPROXY_SUPPORTED_PROVIDERS],
-      variants: {},
-    };
-  }
-  if (!unifiedConfig.cliproxy.variants) {
-    unifiedConfig.cliproxy.variants = {};
-  }
-
-  unifiedConfig.cliproxy.variants[name] = config;
-  saveUnifiedConfig(unifiedConfig);
+    unifiedConfig.cliproxy.variants[name] = config;
+  });
 }
 
 export function saveVariantUnified(
@@ -196,28 +195,26 @@ export function saveVariantUnified(
   port?: number,
   target: TargetType = 'claude'
 ): void {
-  const config = loadOrCreateUnifiedConfig();
+  mutateUnifiedConfig((config) => {
+    if (!config.cliproxy) {
+      config.cliproxy = {
+        oauth_accounts: {},
+        providers: [...CLIPROXY_SUPPORTED_PROVIDERS],
+        variants: {},
+      };
+    }
+    if (!config.cliproxy.variants) {
+      config.cliproxy.variants = {};
+    }
 
-  if (!config.cliproxy) {
-    config.cliproxy = {
-      oauth_accounts: {},
-      providers: [...CLIPROXY_SUPPORTED_PROVIDERS],
-      variants: {},
+    config.cliproxy.variants[name] = {
+      provider,
+      account,
+      settings: settingsPath,
+      port,
+      ...(target !== 'claude' && { target }),
     };
-  }
-  if (!config.cliproxy.variants) {
-    config.cliproxy.variants = {};
-  }
-
-  config.cliproxy.variants[name] = {
-    provider,
-    account,
-    settings: settingsPath,
-    port,
-    ...(target !== 'claude' && { target }),
-  };
-
-  saveUnifiedConfig(config);
+  });
 }
 
 export function saveVariantLegacy(
@@ -268,18 +265,22 @@ export function saveVariantLegacy(
 }
 
 export function removeVariantFromUnifiedConfig(name: string): VariantConfig | null {
-  const config = loadOrCreateUnifiedConfig();
+  let removedVariant: CLIProxyVariantConfig | CompositeVariantConfig | null = null;
+  mutateUnifiedConfig((config) => {
+    if (!config.cliproxy?.variants || !(name in config.cliproxy.variants)) {
+      return;
+    }
 
-  if (!config.cliproxy?.variants || !(name in config.cliproxy.variants)) {
+    removedVariant = config.cliproxy.variants[name];
+    delete config.cliproxy.variants[name];
+  });
+
+  if (!removedVariant) {
     return null;
   }
 
-  const variant = config.cliproxy.variants[name];
-  delete config.cliproxy.variants[name];
-  saveUnifiedConfig(config);
-
-  if ('type' in variant && variant.type === 'composite') {
-    const composite = variant as CompositeVariantConfig;
+  const composite = removedVariant as CompositeVariantConfig;
+  if (composite.type === 'composite') {
     return {
       provider: composite.tiers[composite.default_tier].provider,
       settings: composite.settings,
@@ -290,7 +291,7 @@ export function removeVariantFromUnifiedConfig(name: string): VariantConfig | nu
       tiers: composite.tiers,
     };
   }
-  const singleVariant = variant as CLIProxyVariantConfig;
+  const singleVariant = removedVariant as CLIProxyVariantConfig;
   return {
     provider: singleVariant.provider,
     settings: singleVariant.settings,

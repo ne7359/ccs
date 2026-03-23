@@ -8,8 +8,6 @@ import * as path from 'path';
 import { getCcsDir } from '../../utils/config-manager';
 import { expandPath } from '../../utils/helpers';
 import {
-  loadOrCreateUnifiedConfig,
-  saveUnifiedConfig,
   mutateUnifiedConfig,
   getGlobalEnvConfig,
   getThinkingConfig,
@@ -24,8 +22,21 @@ import {
   THINKING_OFF_VALUES,
 } from '../../cliproxy';
 import { validateFilePath } from './route-helpers';
+import { requireLocalAccessWhenAuthDisabled } from '../middleware/auth-middleware';
 
 const router = Router();
+
+router.use((req: Request, res: Response, next) => {
+  if (
+    requireLocalAccessWhenAuthDisabled(
+      req,
+      res,
+      'Local configuration endpoints require localhost access when dashboard auth is disabled.'
+    )
+  ) {
+    next();
+  }
+});
 
 export function resolveThinkingProviderOverridesForSave(
   currentProviderOverrides: ThinkingConfig['provider_overrides'] | undefined,
@@ -304,14 +315,10 @@ router.put('/thinking', (req: Request, res: Response): void => {
       }
     }
 
-    const config = loadOrCreateUnifiedConfig();
     const shouldClearOverride = clearOverrideFlag === true || updates.override === null;
     const shouldClearProviderOverrides =
       clearProviderOverridesFlag === true || updates.provider_overrides === null;
-    let normalizedOverride: string | number | undefined = config.thinking?.override as
-      | string
-      | number
-      | undefined;
+    let normalizedOverride: string | number | undefined;
     let normalizedProviderOverrides:
       | Record<string, Partial<ThinkingConfig['tier_defaults']>>
       | undefined;
@@ -438,28 +445,32 @@ router.put('/thinking', (req: Request, res: Response): void => {
         Object.keys(sanitizedOverrides).length > 0 ? sanitizedOverrides : undefined;
     }
 
-    // Update thinking section
-    config.thinking = {
-      mode: updates.mode ?? config.thinking?.mode ?? 'auto',
-      override: shouldClearOverride
-        ? undefined
-        : updates.override !== undefined
-          ? normalizedOverride
-          : config.thinking?.override,
-      tier_defaults: {
-        opus: updates.tier_defaults?.opus ?? config.thinking?.tier_defaults?.opus ?? 'high',
-        sonnet: updates.tier_defaults?.sonnet ?? config.thinking?.tier_defaults?.sonnet ?? 'medium',
-        haiku: updates.tier_defaults?.haiku ?? config.thinking?.tier_defaults?.haiku ?? 'low',
-      },
-      provider_overrides: resolveThinkingProviderOverridesForSave(
-        config.thinking?.provider_overrides,
-        updates.provider_overrides !== undefined ? normalizedProviderOverrides : undefined,
-        shouldClearProviderOverrides
-      ),
-      show_warnings: updates.show_warnings ?? config.thinking?.show_warnings ?? true,
-    };
-
-    saveUnifiedConfig(config);
+    const config = mutateUnifiedConfig((currentConfig) => {
+      currentConfig.thinking = {
+        mode: updates.mode ?? currentConfig.thinking?.mode ?? 'auto',
+        override: shouldClearOverride
+          ? undefined
+          : updates.override !== undefined
+            ? normalizedOverride
+            : currentConfig.thinking?.override,
+        tier_defaults: {
+          opus:
+            updates.tier_defaults?.opus ?? currentConfig.thinking?.tier_defaults?.opus ?? 'high',
+          sonnet:
+            updates.tier_defaults?.sonnet ??
+            currentConfig.thinking?.tier_defaults?.sonnet ??
+            'medium',
+          haiku:
+            updates.tier_defaults?.haiku ?? currentConfig.thinking?.tier_defaults?.haiku ?? 'low',
+        },
+        provider_overrides: resolveThinkingProviderOverridesForSave(
+          currentConfig.thinking?.provider_overrides,
+          updates.provider_overrides !== undefined ? normalizedProviderOverrides : undefined,
+          shouldClearProviderOverrides
+        ),
+        show_warnings: updates.show_warnings ?? currentConfig.thinking?.show_warnings ?? true,
+      };
+    });
 
     // W4: Return new mtime for subsequent requests
     let newMtime: number | undefined;

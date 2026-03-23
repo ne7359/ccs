@@ -1759,7 +1759,7 @@ export function CliproxyAiProvidersPage() {
                 onSave={async (payload) => {
                   await updateMutation.mutateAsync({
                     family: selectedFamily,
-                    index: selectedEntry.index,
+                    entryId: selectedEntry.id,
                     data: payload,
                   });
                   void refetch();
@@ -1793,7 +1793,7 @@ export function CliproxyAiProvidersPage() {
           if (editingEntry) {
             await updateMutation.mutateAsync({
               family: selectedFamily,
-              index: editingEntry.index,
+              entryId: editingEntry.id,
               data: payload,
             });
           } else {
@@ -1820,7 +1820,7 @@ export function CliproxyAiProvidersPage() {
           if (!deleteEntry) return;
           await deleteMutation.mutateAsync({
             family: selectedFamily,
-            index: deleteEntry.index,
+            entryId: deleteEntry.id,
           });
           setDeleteEntry(null);
         }}

@@ -93,16 +93,17 @@ export function moveTokenFromPaused(tokenFile: string): boolean {
  * Delete token file from both auth and paused directories
  * Idempotent
  */
-export function deleteTokenFile(tokenFile: string): void {
+export function deleteTokenFile(tokenFile: string): boolean {
   const tokenPath = path.join(getAuthDir(), tokenFile);
   const pausedPath = path.join(getPausedDir(), tokenFile);
+  let success = true;
 
   // Delete from auth directory
   if (fs.existsSync(tokenPath)) {
     try {
       fs.unlinkSync(tokenPath);
     } catch {
-      // Ignore deletion errors
+      success = false;
     }
   }
 
@@ -111,9 +112,11 @@ export function deleteTokenFile(tokenFile: string): void {
     try {
       fs.unlinkSync(pausedPath);
     } catch {
-      // Ignore deletion errors
+      success = false;
     }
   }
+
+  return success;
 }
 
 /**

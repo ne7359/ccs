@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as yaml from 'js-yaml';
 import { configExists, getCliproxyConfigPath, regenerateConfig } from '../config-generator';
@@ -20,6 +21,41 @@ type FamilyEntriesMap = {
 };
 
 export type FamilyEntries<F extends AiProviderFamilyId> = FamilyEntriesMap[F];
+
+type EntryWithOptionalId = {
+  id?: string;
+};
+
+function createFamilyEntryId(family: AiProviderFamilyId): string {
+  return `${family}-${randomUUID()}`;
+}
+
+function ensureStableEntryIds<F extends AiProviderFamilyId>(
+  family: F,
+  entries: FamilyEntries<F>
+): { entries: FamilyEntries<F>; changed: boolean } {
+  const seenIds = new Set<string>();
+  let changed = false;
+
+  const normalizedEntries = entries.map((entry) => {
+    const rawId = (entry as EntryWithOptionalId).id;
+    const normalizedId = typeof rawId === 'string' && rawId.trim().length > 0 ? rawId.trim() : null;
+    const nextId =
+      normalizedId && !seenIds.has(normalizedId) ? normalizedId : createFamilyEntryId(family);
+
+    if (normalizedId !== nextId) {
+      changed = true;
+    }
+
+    seenIds.add(nextId);
+    return {
+      ...entry,
+      id: nextId,
+    };
+  }) as FamilyEntries<F>;
+
+  return { entries: normalizedEntries, changed };
+}
 
 function ensureLocalConfigPath(): string {
   if (!configExists()) {
@@ -91,7 +127,12 @@ export async function readFamilyEntries<F extends AiProviderFamilyId>(
 
   if (!target.isRemote) {
     const config = readLocalConfig();
-    return (config[family] || []) as FamilyEntries<F>;
+    const entries = (Array.isArray(config[family]) ? config[family] : []) as FamilyEntries<F>;
+    const normalized = ensureStableEntryIds(family, entries);
+    if (normalized.changed) {
+      writeLocalFamilySection(family, normalized.entries);
+    }
+    return normalized.entries;
   }
 
   const client = createManagementClient({
@@ -102,17 +143,29 @@ export async function readFamilyEntries<F extends AiProviderFamilyId>(
     auth_token: target.authToken,
   });
 
-  return client.getSection<FamilyEntries<F>[number]>(family) as Promise<FamilyEntries<F>>;
+  const entries = (await client.getSection<FamilyEntries<F>[number]>(family)) as FamilyEntries<F>;
+  const normalized = ensureStableEntryIds(
+    family,
+    Array.isArray(entries) ? entries : ([] as unknown as FamilyEntries<F>)
+  );
+  if (normalized.changed) {
+    await client.putSection<FamilyEntries<F>[number]>(
+      family,
+      normalized.entries as FamilyEntries<F>[number][]
+    );
+  }
+  return normalized.entries;
 }
 
 export async function writeFamilyEntries<F extends AiProviderFamilyId>(
   family: F,
   entries: FamilyEntries<F>
 ): Promise<void> {
+  const normalized = ensureStableEntryIds(family, entries);
   const target = getProxyTarget();
 
   if (!target.isRemote) {
-    writeLocalFamilySection(family, entries);
+    writeLocalFamilySection(family, normalized.entries);
     return;
   }
 
@@ -124,5 +177,8 @@ export async function writeFamilyEntries<F extends AiProviderFamilyId>(
     auth_token: target.authToken,
   });
 
-  await client.putSection<FamilyEntries<F>[number]>(family, entries as FamilyEntries<F>[number][]);
+  await client.putSection<FamilyEntries<F>[number]>(
+    family,
+    normalized.entries as FamilyEntries<F>[number][]
+  );
 }

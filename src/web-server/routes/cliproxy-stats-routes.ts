@@ -53,6 +53,7 @@ import {
   getDeniedModelIdReasonForProvider,
 } from '../../cliproxy/model-id-normalizer';
 import { installDashboardCliproxyVersion } from '../services/cliproxy-dashboard-install-service';
+import { requireLocalAccessWhenAuthDisabled } from '../middleware/auth-middleware';
 
 const router = Router();
 
@@ -65,6 +66,18 @@ interface QuotaRateLimitEntry {
 }
 
 const quotaRateLimits = new Map<string, QuotaRateLimitEntry>();
+
+router.use((req: Request, res: Response, next) => {
+  if (
+    requireLocalAccessWhenAuthDisabled(
+      req,
+      res,
+      'CLIProxy management endpoints require localhost access when dashboard auth is disabled.'
+    )
+  ) {
+    next();
+  }
+});
 
 function buildQuotaRateLimitKey(req: Request, provider: string): string {
   const clientIp = req.ip || req.socket.remoteAddress || 'unknown';

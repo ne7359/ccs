@@ -8,8 +8,21 @@ import {
   type AiProviderFamilyId,
   type UpsertAiProviderEntryInput,
 } from '../../cliproxy/ai-providers';
+import { requireLocalAccessWhenAuthDisabled } from '../middleware/auth-middleware';
 
 const router = Router();
+
+router.use((req: Request, res: Response, next) => {
+  if (
+    requireLocalAccessWhenAuthDisabled(
+      req,
+      res,
+      'AI provider endpoints require localhost access when dashboard auth is disabled.'
+    )
+  ) {
+    next();
+  }
+});
 
 function isAiProviderFamilyId(value: string): value is AiProviderFamilyId {
   return AI_PROVIDER_FAMILY_IDS.includes(value as AiProviderFamilyId);
@@ -24,13 +37,13 @@ function parseFamily(req: Request, res: Response): AiProviderFamilyId | null {
   return family;
 }
 
-function parseIndex(req: Request, res: Response): number | null {
-  const index = Number.parseInt(req.params.index || '', 10);
-  if (!Number.isInteger(index) || index < 0) {
-    res.status(400).json({ error: 'Invalid entry index' });
+function parseEntryId(req: Request, res: Response): string | null {
+  const entryId = req.params.entryId?.trim();
+  if (!entryId) {
+    res.status(400).json({ error: 'Invalid entry id' });
     return null;
   }
-  return index;
+  return entryId;
 }
 
 function parseInput(body: unknown): UpsertAiProviderEntryInput {
@@ -95,14 +108,14 @@ router.post('/:family', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/:family/:index', async (req: Request, res: Response) => {
+router.put('/:family/:entryId', async (req: Request, res: Response) => {
   const family = parseFamily(req, res);
   if (!family) return;
-  const index = parseIndex(req, res);
-  if (index === null) return;
+  const entryId = parseEntryId(req, res);
+  if (!entryId) return;
 
   try {
-    await updateAiProviderEntry(family, index, parseInput(req.body));
+    await updateAiProviderEntry(family, entryId, parseInput(req.body));
     res.json({ success: true });
   } catch (error) {
     const message = (error as Error).message;
@@ -110,14 +123,14 @@ router.put('/:family/:index', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:family/:index', async (req: Request, res: Response) => {
+router.delete('/:family/:entryId', async (req: Request, res: Response) => {
   const family = parseFamily(req, res);
   if (!family) return;
-  const index = parseIndex(req, res);
-  if (index === null) return;
+  const entryId = parseEntryId(req, res);
+  if (!entryId) return;
 
   try {
-    await deleteAiProviderEntry(family, index);
+    await deleteAiProviderEntry(family, entryId);
     res.json({ success: true });
   } catch (error) {
     const message = (error as Error).message;

@@ -854,15 +854,21 @@ export const api = {
           method: 'POST',
           body: JSON.stringify(data),
         }),
-      update: (family: AiProviderFamilyId, index: number, data: UpsertAiProviderEntryInput) =>
-        request(`/cliproxy/ai-providers/${encodeURIComponent(family)}/${index}`, {
-          method: 'PUT',
-          body: JSON.stringify(data),
-        }),
-      delete: (family: AiProviderFamilyId, index: number) =>
-        request(`/cliproxy/ai-providers/${encodeURIComponent(family)}/${index}`, {
-          method: 'DELETE',
-        }),
+      update: (family: AiProviderFamilyId, entryId: string, data: UpsertAiProviderEntryInput) =>
+        request(
+          `/cliproxy/ai-providers/${encodeURIComponent(family)}/${encodeURIComponent(entryId)}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify(data),
+          }
+        ),
+      delete: (family: AiProviderFamilyId, entryId: string) =>
+        request(
+          `/cliproxy/ai-providers/${encodeURIComponent(family)}/${encodeURIComponent(entryId)}`,
+          {
+            method: 'DELETE',
+          }
+        ),
     },
 
     // Config YAML for Config tab

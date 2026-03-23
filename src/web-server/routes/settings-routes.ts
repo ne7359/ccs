@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as lockfile from 'proper-lockfile';
 import { getCcsDir, loadSettings } from '../../utils/config-manager';
 import { isSensitiveKey, maskSensitiveValue } from '../../utils/sensitive-keys';
 import { listVariants } from '../../cliproxy/services/variant-service';
@@ -20,11 +21,8 @@ import {
 import { regenerateConfig } from '../../cliproxy/config-generator';
 import { deduplicateCcsHooks } from '../../utils/websearch/hook-utils';
 import { resolveCliproxyBridgeMetadata } from '../../api/services';
-import {
-  getDashboardAuthConfig,
-  loadOrCreateUnifiedConfig,
-  mutateUnifiedConfig,
-} from '../../config/unified-config-loader';
+import { loadOrCreateUnifiedConfig, mutateUnifiedConfig } from '../../config/unified-config-loader';
+import { requireLocalAccessWhenAuthDisabled } from '../middleware/auth-middleware';
 import type { Settings } from '../../types/config';
 import type { CLIProxyProvider } from '../../cliproxy/types';
 import { mapExternalProviderName } from '../../cliproxy/provider-capabilities';
@@ -43,40 +41,25 @@ const MODEL_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 ] as const;
 const PRESET_MODEL_KEYS = ['default', 'opus', 'sonnet', 'haiku'] as const;
+const SETTINGS_IDENTIFIER_PATTERN = /^[a-zA-Z][a-zA-Z0-9._-]*$/;
 
 const { logRouteError, respondInternalError } = createRouteErrorHelpers('settings-routes');
 
-function isLoopbackAddress(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().replace(/^\[|\]$/g, '');
-  return (
-    normalized === '::1' ||
-    normalized === '127.0.0.1' ||
-    normalized.startsWith('127.') ||
-    normalized === '::ffff:127.0.0.1' ||
-    normalized.startsWith('::ffff:127.')
-  );
+function resolvePathWithin(basePath: string, targetPath: string): string {
+  const resolvedBase = path.resolve(basePath);
+  const resolvedTarget = path.resolve(targetPath);
+  if (resolvedTarget !== resolvedBase && !resolvedTarget.startsWith(`${resolvedBase}${path.sep}`)) {
+    throw new Error('Invalid settings path');
+  }
+  return resolvedTarget;
 }
 
 function requireSensitiveLocalAccess(req: Request, res: Response): boolean {
-  const dashboardAuth = getDashboardAuthConfig();
-  if (dashboardAuth.enabled) {
-    return true;
-  }
-
-  // Use only socket-level address for security decisions.
-  // X-Forwarded-For is trivially spoofable and must NOT be trusted
-  // without an explicit trust proxy configuration.
-  const candidateAddress = req.socket.remoteAddress;
-
-  if (isLoopbackAddress(candidateAddress)) {
-    return true;
-  }
-
-  res.status(403).json({
-    error: 'Sensitive settings endpoints require localhost access when dashboard auth is disabled.',
-  });
-  return false;
+  return requireLocalAccessWhenAuthDisabled(
+    req,
+    res,
+    'Sensitive settings endpoints require localhost access when dashboard auth is disabled.'
+  );
 }
 
 function classifyConfigSaveFailure(error: unknown): { statusCode: number; message: string } {
@@ -100,18 +83,26 @@ function classifyConfigSaveFailure(error: unknown): { statusCode: number; messag
  * Variants have settings paths in config, regular profiles use {name}.settings.json
  */
 function resolveSettingsPath(profileOrVariant: string): string {
+  if (!SETTINGS_IDENTIFIER_PATTERN.test(profileOrVariant)) {
+    throw new Error('Invalid profile name');
+  }
+
   const ccsDir = getCcsDir();
+  const resolvedCcsDir = path.resolve(ccsDir);
 
   // Check if this is a variant
   const variants = listVariants();
   const variant = variants[profileOrVariant];
   if (variant?.settings) {
     // Variant settings path (e.g., ~/.ccs/agy-g3.settings.json)
-    return variant.settings.replace(/^~/, os.homedir());
+    return resolvePathWithin(resolvedCcsDir, variant.settings.replace(/^~/, os.homedir()));
   }
 
   // Regular profile settings
-  return path.join(ccsDir, `${profileOrVariant}.settings.json`);
+  return resolvePathWithin(
+    resolvedCcsDir,
+    path.join(resolvedCcsDir, `${profileOrVariant}.settings.json`)
+  );
 }
 
 function resolveProviderForProfile(profileOrVariant: string): CLIProxyProvider | null {
@@ -261,9 +252,27 @@ function canonicalizeProfileSettings(profileOrVariant: string, settings: Setting
 }
 
 function writeSettingsAtomically(settingsPath: string, settings: Settings): void {
-  const tempPath = settingsPath + '.tmp';
+  const tempPath = `${settingsPath}.tmp.${process.pid}`;
   fs.writeFileSync(tempPath, JSON.stringify(settings, null, 2) + '\n');
   fs.renameSync(tempPath, settingsPath);
+}
+
+function withSettingsFileLock<T>(settingsPath: string, callback: () => T): T {
+  const lockTarget = fs.existsSync(settingsPath) ? settingsPath : path.dirname(settingsPath);
+  let release: (() => void) | undefined;
+
+  try {
+    release = lockfile.lockSync(lockTarget, { stale: 10000 }) as () => void;
+    return callback();
+  } finally {
+    if (release) {
+      try {
+        release();
+      } catch {
+        // Best-effort release
+      }
+    }
+  }
 }
 
 function loadCanonicalProfileSettings(
@@ -339,6 +348,8 @@ router.get('/:profile', (req: Request, res: Response): void => {
  * GET /api/settings/:profile/raw - Get full settings (for editing)
  */
 router.get('/:profile/raw', (req: Request, res: Response): void => {
+  if (!requireSensitiveLocalAccess(req, res)) return;
+
   try {
     const { profile } = req.params;
     const settingsPath = resolveSettingsPath(profile);
@@ -379,6 +390,8 @@ function checkRequiredEnvVars(settings: Settings): string[] {
  * PUT /api/settings/:profile - Update settings with conflict detection and backup
  */
 router.put('/:profile', (req: Request, res: Response): void => {
+  if (!requireSensitiveLocalAccess(req, res)) return;
+
   try {
     const { profile } = req.params;
     const { settings, expectedMtime } = req.body;
@@ -407,53 +420,56 @@ router.put('/:profile', (req: Request, res: Response): void => {
     const missingFields = checkRequiredEnvVars(normalizedSettings);
     const settingsPath = resolveSettingsPath(profile);
 
-    const fileExists = fs.existsSync(settingsPath);
-
-    // Only check conflict if file exists and expectedMtime was provided
-    if (fileExists && expectedMtime) {
-      const stat = fs.statSync(settingsPath);
-      if (stat.mtime.getTime() !== expectedMtime) {
-        res.status(409).json({
-          error: 'File modified externally',
-          currentMtime: stat.mtime.getTime(),
-        });
-        return;
-      }
-    }
-
-    // Create backup only if file exists AND content actually changed
     let backupPath: string | undefined;
-    const newContent = JSON.stringify(normalizedSettings, null, 2) + '\n';
-    if (fileExists) {
-      const existingContent = fs.readFileSync(settingsPath, 'utf8');
-      // Only create backup if content differs
-      if (existingContent !== newContent) {
-        const backupDir = path.join(ccsDir, 'backups');
-        if (!fs.existsSync(backupDir)) {
-          fs.mkdirSync(backupDir, { recursive: true });
+    let created = false;
+    let newMtime = 0;
+
+    withSettingsFileLock(settingsPath, () => {
+      const fileExists = fs.existsSync(settingsPath);
+
+      if (fileExists && expectedMtime) {
+        const stat = fs.statSync(settingsPath);
+        if (stat.mtime.getTime() !== expectedMtime) {
+          res.status(409).json({
+            error: 'File modified externally',
+            currentMtime: stat.mtime.getTime(),
+          });
+          return;
         }
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        backupPath = path.join(backupDir, `${profile}.${timestamp}.settings.json`);
-        fs.copyFileSync(settingsPath, backupPath);
       }
+
+      const newContent = JSON.stringify(normalizedSettings, null, 2) + '\n';
+      if (fileExists) {
+        const existingContent = fs.readFileSync(settingsPath, 'utf8');
+        if (existingContent !== newContent) {
+          const backupDir = path.join(ccsDir, 'backups');
+          if (!fs.existsSync(backupDir)) {
+            fs.mkdirSync(backupDir, { recursive: true });
+          }
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          backupPath = path.join(backupDir, `${profile}.${timestamp}.settings.json`);
+          fs.copyFileSync(settingsPath, backupPath);
+        }
+      } else {
+        created = true;
+        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+      }
+
+      const tempPath = `${settingsPath}.tmp.${process.pid}`;
+      fs.writeFileSync(tempPath, newContent);
+      fs.renameSync(tempPath, settingsPath);
+      newMtime = fs.statSync(settingsPath).mtime.getTime();
+    });
+
+    if (res.headersSent) {
+      return;
     }
 
-    // Ensure directory exists for new files
-    if (!fileExists) {
-      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    }
-
-    // Write new settings atomically
-    const tempPath = settingsPath + '.tmp';
-    fs.writeFileSync(tempPath, newContent);
-    fs.renameSync(tempPath, settingsPath);
-
-    const newStat = fs.statSync(settingsPath);
     res.json({
       profile,
-      mtime: newStat.mtime.getTime(),
+      mtime: newMtime,
       backupPath,
-      created: !fileExists,
+      created,
       // Include warning if fields missing (runtime will use defaults)
       ...(missingFields.length > 0 && {
         warning: `Missing fields will use defaults: ${missingFields.join(', ')}`,
@@ -491,6 +507,8 @@ router.get('/:profile/presets', (req: Request, res: Response): void => {
  * POST /api/settings/:profile/presets - Create a new preset
  */
 router.post('/:profile/presets', (req: Request, res: Response): void => {
+  if (!requireSensitiveLocalAccess(req, res)) return;
+
   try {
     const { profile } = req.params;
     const { name, default: defaultModel, opus, sonnet, haiku } = req.body;
@@ -502,56 +520,65 @@ router.post('/:profile/presets', (req: Request, res: Response): void => {
 
     const settingsPath = resolveSettingsPath(profile);
 
-    // Create settings file if it doesn't exist
-    if (!fs.existsSync(settingsPath)) {
-      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-      fs.writeFileSync(settingsPath, JSON.stringify({ env: {}, presets: [] }, null, 2) + '\n');
-    }
+    let persistedPreset:
+      | {
+          name: string;
+          default: string;
+          opus: string;
+          sonnet: string;
+          haiku: string;
+        }
+      | undefined;
 
-    const settings = loadCanonicalProfileSettings(profile, settingsPath, false);
-    settings.presets = settings.presets || [];
+    withSettingsFileLock(settingsPath, () => {
+      if (!fs.existsSync(settingsPath)) {
+        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+        fs.writeFileSync(settingsPath, JSON.stringify({ env: {}, presets: [] }, null, 2) + '\n');
+      }
 
-    // Check for duplicate name
-    if (settings.presets.some((p) => p.name === name)) {
-      res.status(409).json({ error: 'Preset with this name already exists' });
+      const settings = loadCanonicalProfileSettings(profile, settingsPath, false);
+      settings.presets = settings.presets || [];
+
+      if (settings.presets.some((p) => p.name === name)) {
+        res.status(409).json({ error: 'Preset with this name already exists' });
+        return;
+      }
+
+      const normalizePresetModel = (modelId: string): string =>
+        canonicalizeProfileModelId(profile, modelId, settings);
+
+      for (const modelId of [
+        defaultModel,
+        opus || defaultModel,
+        sonnet || defaultModel,
+        haiku || defaultModel,
+      ]) {
+        const deniedReason = findDeniedProfileModel(profile, modelId, settings);
+        if (deniedReason) {
+          res.status(400).json({ error: deniedReason });
+          return;
+        }
+      }
+
+      const preset = {
+        name,
+        default: normalizePresetModel(defaultModel),
+        opus: normalizePresetModel(opus || defaultModel),
+        sonnet: normalizePresetModel(sonnet || defaultModel),
+        haiku: normalizePresetModel(haiku || defaultModel),
+      };
+
+      settings.presets.push(preset);
+      const canonicalizedSettings = canonicalizeProfileSettings(profile, settings);
+      writeSettingsAtomically(settingsPath, canonicalizedSettings);
+      persistedPreset =
+        canonicalizedSettings.presets?.find((entry) => entry.name === name) || preset;
+    });
+
+    if (res.headersSent) {
       return;
     }
 
-    const normalizePresetModel = (modelId: string): string =>
-      canonicalizeProfileModelId(profile, modelId, settings);
-
-    for (const modelId of [
-      defaultModel,
-      opus || defaultModel,
-      sonnet || defaultModel,
-      haiku || defaultModel,
-    ]) {
-      const deniedReason = findDeniedProfileModel(profile, modelId, settings);
-      if (deniedReason) {
-        res.status(400).json({ error: deniedReason });
-        return;
-      }
-    }
-
-    const normalizedDefaultModel = normalizePresetModel(defaultModel);
-    const normalizedOpusModel = normalizePresetModel(opus || defaultModel);
-    const normalizedSonnetModel = normalizePresetModel(sonnet || defaultModel);
-    const normalizedHaikuModel = normalizePresetModel(haiku || defaultModel);
-
-    const preset = {
-      name,
-      default: normalizedDefaultModel,
-      opus: normalizedOpusModel,
-      sonnet: normalizedSonnetModel,
-      haiku: normalizedHaikuModel,
-    };
-
-    settings.presets.push(preset);
-    const canonicalizedSettings = canonicalizeProfileSettings(profile, settings);
-    writeSettingsAtomically(settingsPath, canonicalizedSettings);
-
-    const persistedPreset =
-      canonicalizedSettings.presets?.find((entry) => entry.name === name) || preset;
     res.status(201).json({ preset: persistedPreset });
   } catch (error) {
     respondInternalError(res, error, 'Internal server error.');
@@ -562,24 +589,32 @@ router.post('/:profile/presets', (req: Request, res: Response): void => {
  * DELETE /api/settings/:profile/presets/:name - Delete a preset
  */
 router.delete('/:profile/presets/:name', (req: Request, res: Response): void => {
+  if (!requireSensitiveLocalAccess(req, res)) return;
+
   try {
     const { profile, name } = req.params;
     const settingsPath = resolveSettingsPath(profile);
 
-    if (!fs.existsSync(settingsPath)) {
-      res.status(404).json({ error: 'Settings not found' });
+    withSettingsFileLock(settingsPath, () => {
+      if (!fs.existsSync(settingsPath)) {
+        res.status(404).json({ error: 'Settings not found' });
+        return;
+      }
+
+      const settings = loadCanonicalProfileSettings(profile, settingsPath, false);
+      if (!settings.presets || !settings.presets.some((p) => p.name === name)) {
+        res.status(404).json({ error: 'Preset not found' });
+        return;
+      }
+
+      settings.presets = settings.presets.filter((p) => p.name !== name);
+      const canonicalizedSettings = canonicalizeProfileSettings(profile, settings);
+      writeSettingsAtomically(settingsPath, canonicalizedSettings);
+    });
+
+    if (res.headersSent) {
       return;
     }
-
-    const settings = loadCanonicalProfileSettings(profile, settingsPath, false);
-    if (!settings.presets || !settings.presets.some((p) => p.name === name)) {
-      res.status(404).json({ error: 'Preset not found' });
-      return;
-    }
-
-    settings.presets = settings.presets.filter((p) => p.name !== name);
-    const canonicalizedSettings = canonicalizeProfileSettings(profile, settings);
-    writeSettingsAtomically(settingsPath, canonicalizedSettings);
 
     res.json({ success: true });
   } catch (error) {
@@ -642,6 +677,8 @@ router.put('/auth/antigravity-risk', (req: Request, res: Response): void => {
  * GET /api/settings/auth/tokens - Get current auth token status (masked)
  */
 router.get('/auth/tokens', (_req: Request, res: Response): void => {
+  if (!requireSensitiveLocalAccess(_req, res)) return;
+
   try {
     const summary = getAuthSummary();
 
@@ -692,6 +729,8 @@ router.get('/auth/tokens/raw', (req: Request, res: Response): void => {
  * PUT /api/settings/auth/tokens - Update auth tokens
  */
 router.put('/auth/tokens', (req: Request, res: Response): void => {
+  if (!requireSensitiveLocalAccess(req, res)) return;
+
   try {
     const { apiKey, managementSecret } = req.body;
 
@@ -728,6 +767,8 @@ router.put('/auth/tokens', (req: Request, res: Response): void => {
  * POST /api/settings/auth/tokens/regenerate-secret - Generate new management secret
  */
 router.post('/auth/tokens/regenerate-secret', (_req: Request, res: Response): void => {
+  if (!requireSensitiveLocalAccess(_req, res)) return;
+
   try {
     const newSecret = generateSecureToken(32);
     setGlobalManagementSecret(newSecret);
@@ -752,6 +793,8 @@ router.post('/auth/tokens/regenerate-secret', (_req: Request, res: Response): vo
  * POST /api/settings/auth/tokens/reset - Reset auth tokens to defaults
  */
 router.post('/auth/tokens/reset', (_req: Request, res: Response): void => {
+  if (!requireSensitiveLocalAccess(_req, res)) return;
+
   try {
     resetAuthToDefaults();
 

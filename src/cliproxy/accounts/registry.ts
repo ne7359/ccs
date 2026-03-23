@@ -5,9 +5,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as lockfile from 'proper-lockfile';
 import { CLIProxyProvider } from '../types';
 import { PROVIDER_TYPE_VALUES } from '../auth/auth-types';
-import { getAuthDir } from '../config-generator';
+import { getAuthDir, getCliproxyDir } from '../config-generator';
 import { AccountsRegistry, AccountInfo, PROVIDERS_WITHOUT_EMAIL } from './types';
 import {
   getAccountsRegistryPath,
@@ -30,32 +31,58 @@ function createDefaultRegistry(): AccountsRegistry {
   };
 }
 
-/**
- * Load accounts registry
- */
-export function loadAccountsRegistry(): AccountsRegistry {
+function withAccountsRegistryLock<T>(callback: () => T): T {
+  const lockTarget = getCliproxyDir();
+  let release: (() => void) | undefined;
+
+  if (!fs.existsSync(lockTarget)) {
+    fs.mkdirSync(lockTarget, { recursive: true, mode: 0o700 });
+  }
+
+  try {
+    release = lockfile.lockSync(lockTarget, { stale: 10000 }) as () => void;
+    return callback();
+  } finally {
+    if (release) {
+      try {
+        release();
+      } catch {
+        // Best-effort release
+      }
+    }
+  }
+}
+
+function readAccountsRegistryFromDisk(): AccountsRegistry {
   const registryPath = getAccountsRegistryPath();
 
   if (!fs.existsSync(registryPath)) {
     return createDefaultRegistry();
   }
 
+  const content = fs.readFileSync(registryPath, 'utf-8');
+  let data: unknown;
   try {
-    const content = fs.readFileSync(registryPath, 'utf-8');
-    const data = JSON.parse(content);
-    return {
-      version: data.version || 1,
-      providers: data.providers || {},
-    };
-  } catch {
-    return createDefaultRegistry();
+    data = JSON.parse(content);
+  } catch (error) {
+    throw new Error(`Accounts registry is corrupted: ${(error as Error).message}`);
   }
+
+  if (!data || typeof data !== 'object') {
+    throw new Error('Accounts registry is corrupted: expected object');
+  }
+
+  const parsed = data as { version?: unknown; providers?: unknown };
+  return {
+    version: typeof parsed.version === 'number' ? parsed.version : 1,
+    providers:
+      parsed.providers && typeof parsed.providers === 'object'
+        ? (parsed.providers as AccountsRegistry['providers'])
+        : {},
+  };
 }
 
-/**
- * Save accounts registry
- */
-export function saveAccountsRegistry(registry: AccountsRegistry): void {
+function writeAccountsRegistryToDisk(registry: AccountsRegistry): void {
   const registryPath = getAccountsRegistryPath();
   const dir = path.dirname(registryPath);
 
@@ -63,8 +90,38 @@ export function saveAccountsRegistry(registry: AccountsRegistry): void {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 
-  fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2) + '\n', {
+  const tempPath = `${registryPath}.tmp.${process.pid}`;
+  fs.writeFileSync(tempPath, JSON.stringify(registry, null, 2) + '\n', {
     mode: 0o600,
+  });
+  fs.renameSync(tempPath, registryPath);
+}
+
+function mutateAccountsRegistry<T>(mutator: (registry: AccountsRegistry) => T): T {
+  return withAccountsRegistryLock(() => {
+    const registry = readAccountsRegistryFromDisk();
+    const initialSnapshot = JSON.stringify(registry);
+    const result = mutator(registry);
+    if (JSON.stringify(registry) !== initialSnapshot) {
+      writeAccountsRegistryToDisk(registry);
+    }
+    return result;
+  });
+}
+
+/**
+ * Load accounts registry
+ */
+export function loadAccountsRegistry(): AccountsRegistry {
+  return readAccountsRegistryFromDisk();
+}
+
+/**
+ * Save accounts registry
+ */
+export function saveAccountsRegistry(registry: AccountsRegistry): void {
+  withAccountsRegistryLock(() => {
+    writeAccountsRegistryToDisk(registry);
   });
 }
 
@@ -133,110 +190,103 @@ export function registerAccount(
   nickname?: string,
   projectId?: string
 ): AccountInfo {
-  const registry = loadAccountsRegistry();
+  return mutateAccountsRegistry((registry) => {
+    syncRegistryWithTokenFiles(registry);
 
-  // Initialize provider section if needed
-  if (!registry.providers[provider]) {
-    registry.providers[provider] = {
-      default: 'default',
-      accounts: {},
-    };
-  }
-
-  const providerAccounts = registry.providers[provider];
-  if (!providerAccounts) {
-    throw new Error('Failed to initialize provider accounts');
-  }
-
-  // Determine account ID based on provider type
-  let accountId: string;
-  let accountNickname: string;
-
-  if (PROVIDERS_WITHOUT_EMAIL.includes(provider)) {
-    accountId = email
-      ? extractAccountIdFromTokenFile(tokenFile, email)
-      : deriveNoEmailProviderAccountId(provider, tokenFile, providerAccounts.accounts);
-    const existingAccount = providerAccounts.accounts[accountId];
-
-    if (nickname) {
-      const validationError = validateNickname(nickname);
-      if (validationError) {
-        throw new Error(validationError);
-      }
-
-      const existingAccounts = Object.entries(providerAccounts.accounts).map(([id, account]) => ({
-        id,
-        nickname: account.nickname,
-      }));
-      if (hasAccountNameConflict(existingAccounts, nickname, accountId)) {
-        throw new Error(
-          `An account with nickname "${nickname}" already exists for ${provider}. ` +
-            `Choose a different nickname.`
-        );
-      }
+    if (!registry.providers[provider]) {
+      registry.providers[provider] = {
+        default: 'default',
+        accounts: {},
+      };
     }
 
-    accountNickname =
-      nickname || existingAccount?.nickname || (email ? generateNickname(email) : accountId);
-  } else {
-    // For other providers: use email as accountId, fallback to filename extraction
-    accountId = extractAccountIdFromTokenFile(tokenFile, email);
-    accountNickname = nickname || generateNickname(email);
-  }
+    const providerAccounts = registry.providers[provider];
+    if (!providerAccounts) {
+      throw new Error('Failed to initialize provider accounts');
+    }
 
-  const isFirstAccount = Object.keys(providerAccounts.accounts).length === 0;
+    let accountId: string;
+    let accountNickname: string;
 
-  // Create or update account
-  const existingAccount = providerAccounts.accounts[accountId];
-  const accountMeta: Omit<AccountInfo, 'id' | 'provider' | 'isDefault'> = {
-    email,
-    nickname: accountNickname,
-    tokenFile,
-    createdAt: existingAccount?.createdAt || new Date().toISOString(),
-    lastUsedAt: new Date().toISOString(),
-  };
+    if (PROVIDERS_WITHOUT_EMAIL.includes(provider)) {
+      accountId = email
+        ? extractAccountIdFromTokenFile(tokenFile, email)
+        : deriveNoEmailProviderAccountId(provider, tokenFile, providerAccounts.accounts);
+      const existingAccount = providerAccounts.accounts[accountId];
 
-  // Include projectId for Antigravity accounts
-  if (provider === 'agy' && projectId) {
-    accountMeta.projectId = projectId;
-  }
+      if (nickname) {
+        const validationError = validateNickname(nickname);
+        if (validationError) {
+          throw new Error(validationError);
+        }
 
-  providerAccounts.accounts[accountId] = accountMeta;
+        const existingAccounts = Object.entries(providerAccounts.accounts).map(([id, account]) => ({
+          id,
+          nickname: account.nickname,
+        }));
+        if (hasAccountNameConflict(existingAccounts, nickname, accountId)) {
+          throw new Error(
+            `An account with nickname "${nickname}" already exists for ${provider}. ` +
+              `Choose a different nickname.`
+          );
+        }
+      }
 
-  // Set as default if first account
-  if (isFirstAccount) {
-    providerAccounts.default = accountId;
-  }
+      accountNickname =
+        nickname || existingAccount?.nickname || (email ? generateNickname(email) : accountId);
+    } else {
+      accountId = extractAccountIdFromTokenFile(tokenFile, email);
+      accountNickname = nickname || generateNickname(email);
+    }
 
-  saveAccountsRegistry(registry);
+    const isFirstAccount = Object.keys(providerAccounts.accounts).length === 0;
+    const existingAccount = providerAccounts.accounts[accountId];
+    const accountMeta: Omit<AccountInfo, 'id' | 'provider' | 'isDefault'> = {
+      email,
+      nickname: accountNickname,
+      tokenFile,
+      createdAt: existingAccount?.createdAt || new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    };
 
-  return {
-    id: accountId,
-    provider,
-    isDefault: accountId === providerAccounts.default,
-    email,
-    nickname: accountNickname,
-    tokenFile,
-    createdAt: providerAccounts.accounts[accountId].createdAt,
-    lastUsedAt: providerAccounts.accounts[accountId].lastUsedAt,
-    projectId: providerAccounts.accounts[accountId].projectId,
-  };
+    if (provider === 'agy' && projectId) {
+      accountMeta.projectId = projectId;
+    }
+
+    providerAccounts.accounts[accountId] = accountMeta;
+
+    if (isFirstAccount) {
+      providerAccounts.default = accountId;
+    }
+
+    return {
+      id: accountId,
+      provider,
+      isDefault: accountId === providerAccounts.default,
+      email,
+      nickname: accountNickname,
+      tokenFile,
+      createdAt: providerAccounts.accounts[accountId].createdAt,
+      lastUsedAt: providerAccounts.accounts[accountId].lastUsedAt,
+      projectId: providerAccounts.accounts[accountId].projectId,
+    };
+  });
 }
 
 /**
  * Set default account for a provider
  */
 export function setDefaultAccount(provider: CLIProxyProvider, accountId: string): boolean {
-  const registry = loadAccountsRegistry();
-  const providerAccounts = registry.providers[provider];
+  return mutateAccountsRegistry((registry) => {
+    const providerAccounts = registry.providers[provider];
 
-  if (!providerAccounts || !providerAccounts.accounts[accountId]) {
-    return false;
-  }
+    if (!providerAccounts || !providerAccounts.accounts[accountId]) {
+      return false;
+    }
 
-  providerAccounts.default = accountId;
-  saveAccountsRegistry(registry);
-  return true;
+    providerAccounts.default = accountId;
+    return true;
+  });
 }
 
 /**
@@ -244,27 +294,26 @@ export function setDefaultAccount(provider: CLIProxyProvider, accountId: string)
  * Moves token file to paused/ subdir so CLIProxyAPI won't discover it
  */
 export function pauseAccount(provider: CLIProxyProvider, accountId: string): boolean {
-  const registry = loadAccountsRegistry();
-  const providerAccounts = registry.providers[provider];
+  return mutateAccountsRegistry((registry) => {
+    const providerAccounts = registry.providers[provider];
 
-  if (!providerAccounts?.accounts[accountId]) {
-    return false;
-  }
+    if (!providerAccounts?.accounts[accountId]) {
+      return false;
+    }
 
-  const accountMeta = providerAccounts.accounts[accountId];
+    const accountMeta = providerAccounts.accounts[accountId];
+    if (accountMeta.paused) {
+      return true;
+    }
 
-  // Skip if already paused (idempotent)
-  if (accountMeta.paused) {
+    if (!moveTokenToPaused(accountMeta.tokenFile)) {
+      return false;
+    }
+
+    providerAccounts.accounts[accountId].paused = true;
+    providerAccounts.accounts[accountId].pausedAt = new Date().toISOString();
     return true;
-  }
-
-  // Move token file to paused directory (if it exists in auth dir)
-  moveTokenToPaused(accountMeta.tokenFile);
-
-  providerAccounts.accounts[accountId].paused = true;
-  providerAccounts.accounts[accountId].pausedAt = new Date().toISOString();
-  saveAccountsRegistry(registry);
-  return true;
+  });
 }
 
 /**
@@ -272,55 +321,53 @@ export function pauseAccount(provider: CLIProxyProvider, accountId: string): boo
  * Moves token file back from paused/ to auth/ so CLIProxyAPI can discover it
  */
 export function resumeAccount(provider: CLIProxyProvider, accountId: string): boolean {
-  const registry = loadAccountsRegistry();
-  const providerAccounts = registry.providers[provider];
+  return mutateAccountsRegistry((registry) => {
+    const providerAccounts = registry.providers[provider];
 
-  if (!providerAccounts?.accounts[accountId]) {
-    return false;
-  }
+    if (!providerAccounts?.accounts[accountId]) {
+      return false;
+    }
 
-  const accountMeta = providerAccounts.accounts[accountId];
+    const accountMeta = providerAccounts.accounts[accountId];
+    if (!accountMeta.paused) {
+      return true;
+    }
 
-  // Skip if already active (idempotent)
-  if (!accountMeta.paused) {
+    if (!moveTokenFromPaused(accountMeta.tokenFile)) {
+      return false;
+    }
+
+    providerAccounts.accounts[accountId].paused = false;
+    providerAccounts.accounts[accountId].pausedAt = undefined;
     return true;
-  }
-
-  // Move token file back from paused directory (if it exists in paused dir)
-  moveTokenFromPaused(accountMeta.tokenFile);
-
-  providerAccounts.accounts[accountId].paused = false;
-  providerAccounts.accounts[accountId].pausedAt = undefined;
-  saveAccountsRegistry(registry);
-  return true;
+  });
 }
 
 /**
  * Remove an account
  */
 export function removeAccount(provider: CLIProxyProvider, accountId: string): boolean {
-  const registry = loadAccountsRegistry();
-  const providerAccounts = registry.providers[provider];
+  return mutateAccountsRegistry((registry) => {
+    const providerAccounts = registry.providers[provider];
 
-  if (!providerAccounts || !providerAccounts.accounts[accountId]) {
-    return false;
-  }
+    if (!providerAccounts || !providerAccounts.accounts[accountId]) {
+      return false;
+    }
 
-  // Delete token file from both auth and paused directories
-  const tokenFile = providerAccounts.accounts[accountId].tokenFile;
-  deleteTokenFile(tokenFile);
+    const tokenFile = providerAccounts.accounts[accountId].tokenFile;
+    if (!deleteTokenFile(tokenFile)) {
+      return false;
+    }
 
-  // Remove from registry
-  delete providerAccounts.accounts[accountId];
+    delete providerAccounts.accounts[accountId];
 
-  // Update default if needed
-  const remainingAccounts = Object.keys(providerAccounts.accounts);
-  if (providerAccounts.default === accountId && remainingAccounts.length > 0) {
-    providerAccounts.default = remainingAccounts[0];
-  }
+    const remainingAccounts = Object.keys(providerAccounts.accounts);
+    if (providerAccounts.default === accountId && remainingAccounts.length > 0) {
+      providerAccounts.default = remainingAccounts[0];
+    }
 
-  saveAccountsRegistry(registry);
-  return true;
+    return true;
+  });
 }
 
 /**
@@ -336,37 +383,36 @@ export function renameAccount(
     throw new Error(validationError);
   }
 
-  const registry = loadAccountsRegistry();
-  const providerAccounts = registry.providers[provider];
+  return mutateAccountsRegistry((registry) => {
+    const providerAccounts = registry.providers[provider];
 
-  if (!providerAccounts?.accounts[accountId]) {
-    return false;
-  }
+    if (!providerAccounts?.accounts[accountId]) {
+      return false;
+    }
 
-  const existingAccounts = Object.entries(providerAccounts.accounts).map(([id, account]) => ({
-    id,
-    nickname: account.nickname,
-  }));
-  if (hasAccountNameConflict(existingAccounts, newNickname, accountId)) {
-    throw new Error(`Nickname "${newNickname}" is already used by another account`);
-  }
+    const existingAccounts = Object.entries(providerAccounts.accounts).map(([id, account]) => ({
+      id,
+      nickname: account.nickname,
+    }));
+    if (hasAccountNameConflict(existingAccounts, newNickname, accountId)) {
+      throw new Error(`Nickname "${newNickname}" is already used by another account`);
+    }
 
-  providerAccounts.accounts[accountId].nickname = newNickname;
-  saveAccountsRegistry(registry);
-  return true;
+    providerAccounts.accounts[accountId].nickname = newNickname;
+    return true;
+  });
 }
 
 /**
  * Update last used timestamp for an account
  */
 export function touchAccount(provider: CLIProxyProvider, accountId: string): void {
-  const registry = loadAccountsRegistry();
-  const providerAccounts = registry.providers[provider];
-
-  if (providerAccounts?.accounts[accountId]) {
-    providerAccounts.accounts[accountId].lastUsedAt = new Date().toISOString();
-    saveAccountsRegistry(registry);
-  }
+  mutateAccountsRegistry((registry) => {
+    const providerAccounts = registry.providers[provider];
+    if (providerAccounts?.accounts[accountId]) {
+      providerAccounts.accounts[accountId].lastUsedAt = new Date().toISOString();
+    }
+  });
 }
 
 /**
@@ -377,16 +423,16 @@ export function setAccountTier(
   accountId: string,
   tier: 'free' | 'pro' | 'ultra' | 'unknown'
 ): boolean {
-  const registry = loadAccountsRegistry();
-  const providerAccounts = registry.providers[provider];
+  return mutateAccountsRegistry((registry) => {
+    const providerAccounts = registry.providers[provider];
 
-  if (!providerAccounts?.accounts[accountId]) {
-    return false;
-  }
+    if (!providerAccounts?.accounts[accountId]) {
+      return false;
+    }
 
-  providerAccounts.accounts[accountId].tier = tier;
-  saveAccountsRegistry(registry);
-  return true;
+    providerAccounts.accounts[accountId].tier = tier;
+    return true;
+  });
 }
 
 /**
@@ -404,163 +450,103 @@ export function discoverExistingAccounts(): void {
     return;
   }
 
-  const registry = loadAccountsRegistry();
   const files = fs.readdirSync(authDir);
+  mutateAccountsRegistry((registry) => {
+    syncRegistryWithTokenFiles(registry);
 
-  // Track whether any accounts were discovered (to avoid saving empty registry)
-  let discoveredCount = 0;
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
 
-  for (const file of files) {
-    if (!file.endsWith('.json')) continue;
+      const filePath = path.join(authDir, file);
 
-    const filePath = path.join(authDir, file);
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const data = JSON.parse(content);
+        if (!data.type) continue;
 
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const data = JSON.parse(content);
-
-      // Skip if no type field
-      if (!data.type) continue;
-
-      // Build reverse mapping from PROVIDER_TYPE_VALUES (type value -> provider)
-      // e.g., "antigravity" -> "agy", "kiro" -> "kiro", "codewhisperer" -> "kiro"
-      const typeValue = data.type.toLowerCase();
-      let provider: CLIProxyProvider | undefined;
-      for (const [prov, typeValues] of Object.entries(PROVIDER_TYPE_VALUES)) {
-        if (typeValues.includes(typeValue)) {
-          provider = prov as CLIProxyProvider;
-          break;
+        const typeValue = data.type.toLowerCase();
+        let provider: CLIProxyProvider | undefined;
+        for (const [prov, typeValues] of Object.entries(PROVIDER_TYPE_VALUES)) {
+          if (typeValues.includes(typeValue)) {
+            provider = prov as CLIProxyProvider;
+            break;
+          }
         }
-      }
 
-      // Skip if unknown provider type
-      if (!provider) {
-        continue;
-      }
-
-      // Extract email if available, fallback to filename-based ID
-      let email = data.email || undefined;
-
-      // Fallback: extract email from filename (e.g., "kiro-google-user@example.com.json")
-      if (!email && file.includes('@')) {
-        const match = file.match(/([^-]+@[^.]+\.[^.]+)(?=\.json$)/);
-        if (match) {
-          email = match[1];
+        if (!provider) {
+          continue;
         }
-      }
 
-      // Initialize provider section if needed
-      if (!registry.providers[provider]) {
-        registry.providers[provider] = {
-          default: 'default',
-          accounts: {},
+        let email = data.email || undefined;
+        if (!email && file.includes('@')) {
+          const match = file.match(/([^-]+@[^.]+\.[^.]+)(?=\.json$)/);
+          if (match) {
+            email = match[1];
+          }
+        }
+
+        if (!registry.providers[provider]) {
+          registry.providers[provider] = {
+            default: 'default',
+            accounts: {},
+          };
+        }
+
+        const providerAccounts = registry.providers[provider];
+        if (!providerAccounts) continue;
+
+        const existingTokenFiles = Object.values(providerAccounts.accounts).map((a) => a.tokenFile);
+        if (existingTokenFiles.includes(file)) {
+          const projectIdValue =
+            typeof data.project_id === 'string' && data.project_id.trim()
+              ? data.project_id.trim()
+              : null;
+          if (provider === 'agy' && projectIdValue) {
+            const existingEntry = Object.entries(providerAccounts.accounts).find(
+              ([, meta]) => meta.tokenFile === file
+            );
+            if (existingEntry && existingEntry[1].projectId !== projectIdValue) {
+              existingEntry[1].projectId = projectIdValue;
+            }
+          }
+          continue;
+        }
+
+        const accountId =
+          PROVIDERS_WITHOUT_EMAIL.includes(provider) && !email
+            ? deriveNoEmailProviderAccountId(provider, file, providerAccounts.accounts)
+            : extractAccountIdFromTokenFile(file, email);
+
+        if (providerAccounts.accounts[accountId]) {
+          continue;
+        }
+
+        if (Object.keys(providerAccounts.accounts).length === 0) {
+          providerAccounts.default = accountId;
+        }
+
+        const stats = fs.statSync(filePath);
+        const lastModified = stats.mtime || stats.birthtime || new Date();
+        const accountMeta: Omit<AccountInfo, 'id' | 'provider' | 'isDefault'> = {
+          email,
+          nickname: email ? generateNickname(email) : accountId,
+          tokenFile: file,
+          createdAt: stats.birthtime?.toISOString() || new Date().toISOString(),
+          lastUsedAt: lastModified.toISOString(),
         };
-      }
 
-      const providerAccounts = registry.providers[provider];
-      if (!providerAccounts) continue;
-
-      // Skip if token file already registered (under any accountId)
-      const existingTokenFiles = Object.values(providerAccounts.accounts).map((a) => a.tokenFile);
-      if (existingTokenFiles.includes(file)) {
-        // Token file exists - check if we need to update projectId for agy accounts
-        const projectIdValue =
+        const discoveredProjectId =
           typeof data.project_id === 'string' && data.project_id.trim()
             ? data.project_id.trim()
             : null;
-        if (provider === 'agy' && projectIdValue) {
-          const existingEntry = Object.entries(providerAccounts.accounts).find(
-            ([, meta]) => meta.tokenFile === file
-          );
-          // Update if missing or changed
-          if (existingEntry && existingEntry[1].projectId !== projectIdValue) {
-            existingEntry[1].projectId = projectIdValue;
-            discoveredCount++; // Count projectId updates as changes
-          }
+        if (provider === 'agy' && discoveredProjectId) {
+          accountMeta.projectId = discoveredProjectId;
         }
+
+        providerAccounts.accounts[accountId] = accountMeta;
+      } catch {
         continue;
       }
-
-      const accountId =
-        PROVIDERS_WITHOUT_EMAIL.includes(provider) && !email
-          ? deriveNoEmailProviderAccountId(provider, file, providerAccounts.accounts)
-          : extractAccountIdFromTokenFile(file, email);
-
-      // Skip if account already registered
-      if (providerAccounts.accounts[accountId]) {
-        continue;
-      }
-
-      // Set as default if first account
-      if (Object.keys(providerAccounts.accounts).length === 0) {
-        providerAccounts.default = accountId;
-      }
-
-      // Get file stats for creation time
-      const stats = fs.statSync(filePath);
-
-      // Register account with auto-generated nickname
-      // Use mtime as lastUsedAt (when token was last modified = last auth/refresh)
-      const lastModified = stats.mtime || stats.birthtime || new Date();
-      const accountMeta: Omit<AccountInfo, 'id' | 'provider' | 'isDefault'> = {
-        email,
-        nickname: email ? generateNickname(email) : accountId,
-        tokenFile: file,
-        createdAt: stats.birthtime?.toISOString() || new Date().toISOString(),
-        lastUsedAt: lastModified.toISOString(),
-      };
-
-      // Read project_id for Antigravity accounts (read-only field from auth token)
-      const discoveredProjectId =
-        typeof data.project_id === 'string' && data.project_id.trim()
-          ? data.project_id.trim()
-          : null;
-      if (provider === 'agy' && discoveredProjectId) {
-        accountMeta.projectId = discoveredProjectId;
-      }
-
-      providerAccounts.accounts[accountId] = accountMeta;
-      discoveredCount++;
-    } catch {
-      // Skip invalid files
-      continue;
     }
-  }
-
-  // Only save if at least one account was discovered or updated
-  // This prevents creating accounts.json with empty provider sections
-  if (discoveredCount === 0) {
-    return;
-  }
-
-  // Reload-merge pattern: reduce race condition with concurrent OAuth registration
-  // Reload fresh registry and merge discovered accounts (fresh registry wins on conflicts)
-  const freshRegistry = loadAccountsRegistry();
-  for (const [providerName, discovered] of Object.entries(registry.providers)) {
-    if (!discovered) continue;
-    // Skip empty provider sections (no accounts discovered)
-    if (Object.keys(discovered.accounts).length === 0) continue;
-
-    const prov = providerName as CLIProxyProvider;
-    if (!freshRegistry.providers[prov]) {
-      freshRegistry.providers[prov] = discovered;
-    } else {
-      // Merge accounts, preferring fresh registry's existing entries but updating projectId
-      const freshProviderAccounts = freshRegistry.providers[prov];
-      if (!freshProviderAccounts) continue;
-      for (const [id, meta] of Object.entries(discovered.accounts)) {
-        if (!freshProviderAccounts.accounts[id]) {
-          freshProviderAccounts.accounts[id] = meta;
-          // Set default if none exists
-          if (!freshProviderAccounts.default || freshProviderAccounts.default === 'default') {
-            freshProviderAccounts.default = id;
-          }
-        } else if (meta.projectId && !freshProviderAccounts.accounts[id].projectId) {
-          // Update existing account with projectId if discovered from auth file
-          freshProviderAccounts.accounts[id].projectId = meta.projectId;
-        }
-      }
-    }
-  }
-  saveAccountsRegistry(freshRegistry);
+  });
 }

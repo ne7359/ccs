@@ -15,7 +15,7 @@ import {
   normalizeCopilotConfigWithWarnings,
 } from '../copilot';
 import type { CopilotModel } from '../copilot';
-import { loadOrCreateUnifiedConfig, saveUnifiedConfig } from '../config/unified-config-loader';
+import { loadOrCreateUnifiedConfig, mutateUnifiedConfig } from '../config/unified-config-loader';
 import { DEFAULT_COPILOT_CONFIG } from '../config/unified-config-types';
 import { ok, fail, info, color, warn } from '../utils/ui';
 import { normalizeCopilotSubcommand } from '../copilot/constants';
@@ -361,14 +361,13 @@ async function handleStop(): Promise<number> {
  * Handle enable subcommand.
  */
 async function handleEnable(): Promise<number> {
-  const config = loadOrCreateUnifiedConfig();
+  mutateUnifiedConfig((config) => {
+    if (!config.copilot) {
+      config.copilot = { ...DEFAULT_COPILOT_CONFIG };
+    }
 
-  if (!config.copilot) {
-    config.copilot = { ...DEFAULT_COPILOT_CONFIG };
-  }
-
-  config.copilot.enabled = true;
-  saveUnifiedConfig(config);
+    config.copilot.enabled = true;
+  });
 
   console.log(ok('Copilot integration enabled'));
   console.log('');
@@ -384,12 +383,11 @@ async function handleEnable(): Promise<number> {
  * Handle disable subcommand.
  */
 async function handleDisable(): Promise<number> {
-  const config = loadOrCreateUnifiedConfig();
-
-  if (config.copilot) {
-    config.copilot.enabled = false;
-    saveUnifiedConfig(config);
-  }
+  mutateUnifiedConfig((config) => {
+    if (config.copilot) {
+      config.copilot.enabled = false;
+    }
+  });
 
   console.log(ok('Copilot integration disabled'));
 

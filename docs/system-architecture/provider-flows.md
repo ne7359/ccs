@@ -361,6 +361,10 @@ function selectBestAccount(accounts: AccountInfo[]): AccountInfo | null {
 
 **Providers**: GitHub Copilot (ghcp)
 
+Provider identity note:
+- Providers that do not expose a reliable email no longer require a manual nickname during first auth.
+- CCS derives a stable internal account identifier from the token/cache context and still allows the user to rename the account later.
+
 ```
 +===========================================================================+
 |               OAuth - Device Code Flow (No Port Needed)                   |
@@ -432,6 +436,8 @@ function selectBestAccount(accounts: AccountInfo[]): AccountInfo | null {
     - Device Code method uses /start route (no callback port)
     - Callback/social methods use /start-url + status polling
     - Some management flows return state first, auth_url later
+    - Manual nicknames are optional when the upstream provider does not return an email
+    - Account storage uses a stable internal identifier so reauth/update flows do not depend on dashboard list order
 ```
 
 ### API Key Profiles (GLM, Kimi)

@@ -8,10 +8,16 @@ async function loadAccountManager() {
   return import(`../../../src/cliproxy/account-manager?optional-nickname=${Date.now()}`);
 }
 
-async function withIsolatedHome<T>(fn: () => Promise<T> | T): Promise<T> {
+function writeTokenFile(homeDir: string, tokenFile: string): void {
+  const authDir = path.join(homeDir, '.ccs', 'cliproxy', 'auth');
+  fs.mkdirSync(authDir, { recursive: true });
+  fs.writeFileSync(path.join(authDir, tokenFile), '{}', 'utf8');
+}
+
+async function withIsolatedHome<T>(fn: (homeDir: string) => Promise<T> | T): Promise<T> {
   const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-optional-nickname-'));
   try {
-    return await runWithScopedCcsHome(testDir, fn);
+    return await runWithScopedCcsHome(testDir, () => fn(testDir));
   } finally {
     fs.rmSync(testDir, { recursive: true, force: true });
   }
@@ -19,7 +25,8 @@ async function withIsolatedHome<T>(fn: () => Promise<T> | T): Promise<T> {
 
 describe('registerAccount optional nickname flow', () => {
   it('uses a filename-derived id when Kiro/GHCP nickname is omitted', async () => {
-    const account = await withIsolatedHome(async () => {
+    const account = await withIsolatedHome(async (homeDir) => {
+      writeTokenFile(homeDir, 'kiro-github-ABC123.json');
       const { registerAccount } = await loadAccountManager();
       return registerAccount('kiro', 'kiro-github-ABC123.json');
     });
@@ -29,7 +36,9 @@ describe('registerAccount optional nickname flow', () => {
   });
 
   it('falls back to provider-scoped sequential ids when the filename is not descriptive', async () => {
-    const { first, second } = await withIsolatedHome(async () => {
+    const { first, second } = await withIsolatedHome(async (homeDir) => {
+      writeTokenFile(homeDir, 'kiro-nomail.json');
+      writeTokenFile(homeDir, 'kiro-second.json');
       const { registerAccount } = await loadAccountManager();
       return {
         first: registerAccount('kiro', 'kiro-nomail.json'),
@@ -44,7 +53,8 @@ describe('registerAccount optional nickname flow', () => {
   });
 
   it('keeps user nicknames optional metadata separate from internal ids', async () => {
-    const account = await withIsolatedHome(async () => {
+    const account = await withIsolatedHome(async (homeDir) => {
+      writeTokenFile(homeDir, 'ghcp-amazon-XYZ789.json');
       const { registerAccount } = await loadAccountManager();
       return registerAccount('ghcp', 'ghcp-amazon-XYZ789.json', undefined, 'work');
     });
@@ -54,7 +64,8 @@ describe('registerAccount optional nickname flow', () => {
   });
 
   it('preserves an existing custom nickname when the same token file is re-registered', async () => {
-    const reauthenticated = await withIsolatedHome(async () => {
+    const reauthenticated = await withIsolatedHome(async (homeDir) => {
+      writeTokenFile(homeDir, 'kiro-github-ABC123.json');
       const { registerAccount } = await loadAccountManager();
       registerAccount('kiro', 'kiro-github-ABC123.json', undefined, 'work');
       return registerAccount('kiro', 'kiro-github-ABC123.json');
@@ -65,7 +76,10 @@ describe('registerAccount optional nickname flow', () => {
   });
 
   it('rejects nickname collisions against existing account ids and nicknames', async () => {
-    await withIsolatedHome(async () => {
+    await withIsolatedHome(async (homeDir) => {
+      writeTokenFile(homeDir, 'kiro-github-ABC123.json');
+      writeTokenFile(homeDir, 'kiro-google-XYZ789.json');
+      writeTokenFile(homeDir, 'kiro-google-NEW123.json');
       const { registerAccount, renameAccount } = await loadAccountManager();
       registerAccount('kiro', 'kiro-github-ABC123.json');
       const second = registerAccount('kiro', 'kiro-google-XYZ789.json', undefined, 'personal');
@@ -78,7 +92,9 @@ describe('registerAccount optional nickname flow', () => {
   });
 
   it('avoids auto-generated ids that would collide with an existing nickname', async () => {
-    const added = await withIsolatedHome(async () => {
+    const added = await withIsolatedHome(async (homeDir) => {
+      writeTokenFile(homeDir, 'kiro-github-ABC123.json');
+      writeTokenFile(homeDir, 'kiro-google-XYZ789.json');
       const { registerAccount } = await loadAccountManager();
       registerAccount('kiro', 'kiro-github-ABC123.json', undefined, 'google-XYZ789');
       return registerAccount('kiro', 'kiro-google-XYZ789.json');
@@ -89,7 +105,9 @@ describe('registerAccount optional nickname flow', () => {
   });
 
   it('does not resolve ambiguous nickname prefixes to the first generated account', async () => {
-    const match = await withIsolatedHome(async () => {
+    const match = await withIsolatedHome(async (homeDir) => {
+      writeTokenFile(homeDir, 'kiro-github-ABC123.json');
+      writeTokenFile(homeDir, 'kiro-github-DEF456.json');
       const { registerAccount, findAccountByQuery } = await loadAccountManager();
       registerAccount('kiro', 'kiro-github-ABC123.json');
       registerAccount('kiro', 'kiro-github-DEF456.json');

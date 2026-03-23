@@ -11,17 +11,7 @@
 import { initUI, header, color, dim, ok, warn, info } from '../../utils/ui';
 import { getProxyStatus, startProxy, stopProxy } from '../../cliproxy/services';
 import { detectRunningProxy } from '../../cliproxy/proxy-detector';
-import { CLIPROXY_DEFAULT_PORT, validatePort } from '../../cliproxy/config/port-manager';
-import { loadOrCreateUnifiedConfig } from '../../config/unified-config-loader';
-
-/**
- * Resolve the local CLIProxy lifecycle port from unified config.
- * Falls back to default port when unset/invalid.
- */
-export function resolveLifecyclePort(): number {
-  const config = loadOrCreateUnifiedConfig();
-  return validatePort(config.cliproxy_server?.local?.port ?? CLIPROXY_DEFAULT_PORT);
-}
+import { resolveLifecyclePort } from './resolve-lifecycle-port';
 
 export async function handleStart(verbose = false): Promise<void> {
   await initUI();

@@ -51,7 +51,7 @@ function buildApiKeyEntryView(
   index: number
 ): AiProviderEntryView {
   return {
-    id: `${family}:${index}`,
+    id: entry.id || `${family}:${index}`,
     index,
     label: entry.prefix?.trim() || entry['base-url']?.trim() || `Entry ${index + 1}`,
     baseUrl: entry['base-url']?.trim() || undefined,
@@ -67,7 +67,7 @@ function buildApiKeyEntryView(
 
 function buildOpenAiCompatEntryView(entry: OpenAICompatEntry, index: number): AiProviderEntryView {
   return {
-    id: `openai-compatibility:${index}`,
+    id: entry.id || `openai-compatibility:${index}`,
     index,
     name: entry.name,
     label: entry.name,
@@ -131,6 +131,7 @@ function toApiKeyEntry(
         : existing?.['api-key'] || '';
 
   return {
+    id: existing?.id,
     'api-key': nextSecret,
     'base-url': input.baseUrl?.trim() || undefined,
     'proxy-url': input.proxyUrl?.trim() || undefined,
@@ -155,6 +156,7 @@ function toOpenAiCompatEntry(
         : (existing?.['api-key-entries'] || []).map((entry) => entry['api-key']);
 
   return {
+    id: existing?.id,
     name: input.name?.trim() || existing?.name || 'connector',
     'base-url': input.baseUrl?.trim() || existing?.['base-url'] || '',
     headers: normalizeHeaders(input.headers),
@@ -163,8 +165,41 @@ function toOpenAiCompatEntry(
   };
 }
 
-function assertIndex(entries: unknown[], index: number): void {
-  if (!Number.isInteger(index) || index < 0 || index >= entries.length) {
+function resolveEntryIndex(entries: Array<{ id?: string }>, entryId: string): number {
+  const normalizedEntryId = entryId.trim();
+  const matchedIndex = entries.findIndex((entry) => entry.id === normalizedEntryId);
+  if (matchedIndex !== -1) {
+    return matchedIndex;
+  }
+
+  const legacyIndex = Number.parseInt(normalizedEntryId, 10);
+  if (
+    Number.isInteger(legacyIndex) &&
+    legacyIndex >= 0 &&
+    legacyIndex < entries.length &&
+    String(legacyIndex) === normalizedEntryId
+  ) {
+    return legacyIndex;
+  }
+
+  if (normalizedEntryId.startsWith('openai-compatibility:') || normalizedEntryId.includes(':')) {
+    const legacySuffix = normalizedEntryId.split(':').at(-1) || '';
+    const legacySuffixIndex = Number.parseInt(legacySuffix, 10);
+    if (
+      Number.isInteger(legacySuffixIndex) &&
+      legacySuffixIndex >= 0 &&
+      legacySuffixIndex < entries.length &&
+      String(legacySuffixIndex) === legacySuffix
+    ) {
+      return legacySuffixIndex;
+    }
+  }
+
+  throw new Error('Entry not found');
+}
+
+function assertEntryId(entryId: string): void {
+  if (!entryId.trim()) {
     throw new Error('Entry not found');
   }
 }
@@ -208,12 +243,14 @@ export async function createAiProviderEntry(
 
 export async function updateAiProviderEntry(
   family: AiProviderFamilyId,
-  index: number,
+  entryId: string,
   input: UpsertAiProviderEntryInput
 ): Promise<void> {
+  assertEntryId(entryId);
+
   if (family === 'openai-compatibility') {
     const entries = await readFamilyEntries(family);
-    assertIndex(entries, index);
+    const index = resolveEntryIndex(entries, entryId);
     validateFamilyInput(family, input);
     entries[index] = toOpenAiCompatEntry(input, entries[index]);
     await writeFamilyEntries(family, entries);
@@ -221,7 +258,7 @@ export async function updateAiProviderEntry(
   }
 
   const entries = await readFamilyEntries(family);
-  assertIndex(entries, index);
+  const index = resolveEntryIndex(entries, entryId);
   validateFamilyInput(family, input);
   entries[index] = toApiKeyEntry(input, entries[index]);
   await writeFamilyEntries(family, entries);
@@ -229,18 +266,20 @@ export async function updateAiProviderEntry(
 
 export async function deleteAiProviderEntry(
   family: AiProviderFamilyId,
-  index: number
+  entryId: string
 ): Promise<void> {
+  assertEntryId(entryId);
+
   if (family === 'openai-compatibility') {
     const entries = await readFamilyEntries(family);
-    assertIndex(entries, index);
+    const index = resolveEntryIndex(entries, entryId);
     entries.splice(index, 1);
     await writeFamilyEntries(family, entries);
     return;
   }
 
   const entries = await readFamilyEntries(family);
-  assertIndex(entries, index);
+  const index = resolveEntryIndex(entries, entryId);
   entries.splice(index, 1);
   await writeFamilyEntries(family, entries);
 }

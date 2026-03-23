@@ -5,11 +5,7 @@
  */
 
 import { InteractivePrompt } from '../../utils/prompt';
-import {
-  getDashboardAuthConfig,
-  loadOrCreateUnifiedConfig,
-  saveUnifiedConfig,
-} from '../../config/unified-config-loader';
+import { getDashboardAuthConfig, mutateUnifiedConfig } from '../../config/unified-config-loader';
 import { initUI, header, ok, info, warn, dim } from '../../utils/ui';
 
 /**
@@ -57,15 +53,14 @@ export async function handleDisable(): Promise<void> {
   }
 
   // Disable auth
-  const fullConfig = loadOrCreateUnifiedConfig();
-  fullConfig.dashboard_auth = {
-    enabled: false,
-    username: fullConfig.dashboard_auth?.username ?? '',
-    password_hash: fullConfig.dashboard_auth?.password_hash ?? '',
-    session_timeout_hours: fullConfig.dashboard_auth?.session_timeout_hours ?? 24,
-  };
-
-  saveUnifiedConfig(fullConfig);
+  mutateUnifiedConfig((fullConfig) => {
+    fullConfig.dashboard_auth = {
+      enabled: false,
+      username: fullConfig.dashboard_auth?.username ?? '',
+      password_hash: fullConfig.dashboard_auth?.password_hash ?? '',
+      session_timeout_hours: fullConfig.dashboard_auth?.session_timeout_hours ?? 24,
+    };
+  });
 
   console.log('');
   console.log(ok('Dashboard authentication disabled'));

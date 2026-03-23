@@ -19,7 +19,7 @@ import { initUI, header, ok, info, warn } from '../utils/ui';
 import {
   loadOrCreateUnifiedConfig,
   loadUnifiedConfig,
-  saveUnifiedConfig,
+  mutateUnifiedConfig,
   hasUnifiedConfig,
 } from '../config/unified-config-loader';
 import { DEFAULT_CLIPROXY_SERVER_CONFIG } from '../config/unified-config-types';
@@ -377,9 +377,10 @@ async function runSetupWizard(force: boolean = false): Promise<void> {
       console.log('  After creating, edit the settings file to add your API key.');
     }
 
-    // Save config
-    config.setup_completed = true;
-    saveUnifiedConfig(config);
+    mutateUnifiedConfig((currentConfig) => {
+      currentConfig.setup_completed = true;
+      currentConfig.cliproxy_server = config.cliproxy_server;
+    });
 
     // Final summary
     console.log('');
