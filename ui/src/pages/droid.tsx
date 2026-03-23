@@ -694,7 +694,7 @@ export function DroidPage() {
   };
 
   return (
-    <div className="h-[calc(100vh-100px)] overflow-hidden">
+    <div className="h-full min-h-0 overflow-hidden">
       <PanelGroup direction="horizontal" className="h-full">
         <Panel defaultSize={45} minSize={35}>
           <div className="h-full border-r bg-muted/20">{renderOverview()}</div>

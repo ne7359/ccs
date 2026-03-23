@@ -116,7 +116,7 @@ export function CopilotPage() {
   } = useCopilot();
 
   return (
-    <div className="h-[calc(100vh-100px)] flex">
+    <div className="flex h-full min-h-0 overflow-hidden">
       {/* Left Sidebar - Status Overview */}
       <div className="w-80 border-r flex flex-col bg-muted/30 shrink-0">
         {/* Header */}

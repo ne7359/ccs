@@ -121,7 +121,7 @@ function SettingsPageInner() {
   };
 
   return (
-    <div className="h-[calc(100vh-100px)]">
+    <div className="h-full min-h-0">
       {/* Mobile View - Stacked vertically */}
       <div className="md:hidden h-full flex flex-col">
         <div className="border-b bg-background p-4">

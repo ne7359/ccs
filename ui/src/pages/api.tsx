@@ -206,7 +206,7 @@ export function ApiPage() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <OpenRouterBanner onCreateClick={() => setCreateDialogOpen(true)} />
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <div className="w-80 border-r flex flex-col bg-muted/30">

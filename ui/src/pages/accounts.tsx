@@ -55,7 +55,7 @@ export function AccountsPage() {
 
   return (
     <>
-      <div className="h-[calc(100vh-100px)] hidden lg:flex">
+      <div className="hidden h-full min-h-0 lg:flex">
         {/* Left action column */}
         <div className="w-80 border-r flex flex-col bg-muted/20 shrink-0">
           <div className="p-4 border-b bg-background space-y-2">

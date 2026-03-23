@@ -405,7 +405,7 @@ export function ClaudeExtensionPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-100px)] min-h-0">
+    <div className="flex h-full min-h-0 overflow-hidden">
       <div className="flex w-[348px] shrink-0 flex-col border-r bg-muted/30 xl:w-[372px]">
         <div className="border-b bg-background p-4">
           <div className="flex items-start justify-between gap-3">

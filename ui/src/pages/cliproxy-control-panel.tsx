@@ -8,7 +8,7 @@ import { ControlPanelEmbed } from '@/components/cliproxy/control-panel-embed';
 
 export function CliproxyControlPanelPage() {
   return (
-    <div className="h-[calc(100vh-100px)] flex flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <ControlPanelEmbed />
     </div>
   );

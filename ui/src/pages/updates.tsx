@@ -102,7 +102,7 @@ export function UpdatesPage() {
   );
 
   return (
-    <div className="h-[calc(100vh-100px)] flex overflow-hidden">
+    <div className="flex h-full min-h-0 overflow-hidden">
       <div className="w-80 border-r bg-muted/30 flex flex-col overflow-hidden">
         <div className="p-4 border-b bg-background space-y-3">
           <div className="space-y-1">
