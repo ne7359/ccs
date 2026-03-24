@@ -155,6 +155,36 @@ describe('SharedManager', () => {
   });
 
   describe('shared symlink lifecycle', () => {
+    it('does not rewrite inverse shared symlink chains into a real loop', () => {
+      const manager = new SharedManager();
+      const externalCommandsDir = path.join(tempRoot, 'Documents', 'claude-config', 'commands');
+      const claudeCommandsPath = path.join(claudeDir(), 'commands');
+      const sharedCommandsPath = path.join(ccsDir(), 'shared', 'commands');
+      const logSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+      fs.mkdirSync(externalCommandsDir, { recursive: true });
+      fs.mkdirSync(claudeDir(), { recursive: true });
+      fs.mkdirSync(path.join(ccsDir(), 'shared'), { recursive: true });
+      fs.symlinkSync(sharedCommandsPath, claudeCommandsPath, 'dir');
+      fs.symlinkSync(externalCommandsDir, sharedCommandsPath, 'dir');
+
+      manager.ensureSharedDirectories();
+
+      expect(
+        logSpy.mock.calls.some(([message]) =>
+          String(message).includes('Skipping commands: circular symlink detected')
+        )
+      ).toBe(true);
+      expect(fs.lstatSync(claudeCommandsPath).isSymbolicLink()).toBe(true);
+      expect(
+        path.resolve(path.dirname(claudeCommandsPath), fs.readlinkSync(claudeCommandsPath))
+      ).toBe(sharedCommandsPath);
+      expect(fs.lstatSync(sharedCommandsPath).isSymbolicLink()).toBe(true);
+      expect(
+        path.resolve(path.dirname(sharedCommandsPath), fs.readlinkSync(sharedCommandsPath))
+      ).toBe(externalCommandsDir);
+    });
+
     it('preserves external ~/.claude symlinks during upgrade reconciliation', () => {
       const manager = new SharedManager();
       const externalCommandsDir = path.join(tempRoot, 'Documents', 'claude-config', 'commands');
@@ -183,9 +213,10 @@ describe('SharedManager', () => {
       manager.ensureSharedDirectories();
 
       expect(
-        logSpy.mock.calls.some(([message]) =>
-          String(message).includes('Skipping commands: circular symlink detected') ||
-          String(message).includes('Skipping settings.json: circular symlink detected')
+        logSpy.mock.calls.some(
+          ([message]) =>
+            String(message).includes('Skipping commands: circular symlink detected') ||
+            String(message).includes('Skipping settings.json: circular symlink detected')
         )
       ).toBe(false);
       expect(fs.lstatSync(sharedCommandsPath).isSymbolicLink()).toBe(true);
@@ -216,6 +247,31 @@ describe('SharedManager', () => {
         )
       ).toBe(true);
       expect(fs.lstatSync(sharedCommandsPath).isDirectory()).toBe(true);
+    });
+
+    it('does not materialize dangling external settings symlinks', () => {
+      const manager = new SharedManager();
+      const externalSettingsPath = path.join(
+        tempRoot,
+        'Documents',
+        'claude-config',
+        'settings.json'
+      );
+      const claudeSettingsPath = path.join(claudeDir(), 'settings.json');
+      const sharedSettingsPath = path.join(ccsDir(), 'shared', 'settings.json');
+
+      fs.mkdirSync(path.dirname(externalSettingsPath), { recursive: true });
+      fs.mkdirSync(claudeDir(), { recursive: true });
+      fs.symlinkSync(externalSettingsPath, claudeSettingsPath, 'file');
+
+      manager.ensureSharedDirectories();
+
+      expect(fs.lstatSync(claudeSettingsPath).isSymbolicLink()).toBe(true);
+      expect(fs.existsSync(externalSettingsPath)).toBe(false);
+      expect(fs.lstatSync(sharedSettingsPath).isSymbolicLink()).toBe(true);
+      expect(
+        path.resolve(path.dirname(sharedSettingsPath), fs.readlinkSync(sharedSettingsPath))
+      ).toBe(claudeSettingsPath);
     });
   });
 

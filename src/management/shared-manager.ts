@@ -150,11 +150,6 @@ class SharedManager {
    * Detect circular symlink before creation
    */
   private detectCircularSymlink(target: string): boolean {
-    // Check if target exists and is symlink
-    if (!fs.existsSync(target)) {
-      return false;
-    }
-
     try {
       const stats = fs.lstatSync(target);
       if (!stats.isSymbolicLink()) {
@@ -164,20 +159,31 @@ class SharedManager {
       // Resolve target's link
       const targetLink = fs.readlinkSync(target);
       const resolvedTarget = path.resolve(path.dirname(target), targetLink);
+      const sharedDirPath = path.resolve(this.sharedDir);
+
+      // A raw target path pointing back into ~/.ccs/shared is already unsafe.
+      // Re-pointing ~/.ccs/shared/* to ~/.claude/* would turn it into a real loop,
+      // even if the current ~/.ccs/shared entry ultimately resolves to an external path.
+      if (this.isPathWithinDirectory(resolvedTarget, sharedDirPath)) {
+        console.log(warn(`Circular symlink detected: ${target} → ${resolvedTarget}`));
+        return true;
+      }
 
       // Only treat targets inside the managed shared root as circular.
       // Existing shared symlinks may already resolve through ~/.claude/ to an
       // external repo, which is a supported upgrade path rather than a loop.
-      const sharedDir = this.resolveCanonicalPath(path.join(getCcsDir(), 'shared'));
+      const sharedDir = this.resolveCanonicalPath(sharedDirPath);
       const canonicalResolvedTarget = this.resolveCanonicalPath(resolvedTarget);
 
       if (this.isPathWithinDirectory(canonicalResolvedTarget, sharedDir)) {
         console.log(warn(`Circular symlink detected: ${target} → ${resolvedTarget}`));
         return true;
       }
-    } catch (_err) {
-      // If can't read, assume not circular
-      return false;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return false;
+      }
+      throw err;
     }
 
     return false;
@@ -189,13 +195,13 @@ class SharedManager {
    */
   ensureSharedDirectories(): void {
     // Create ~/.claude/ if missing
-    if (!fs.existsSync(this.claudeDir)) {
+    if (!this.getLstatSync(this.claudeDir)) {
       console.log(info('Creating ~/.claude/ directory structure'));
       fs.mkdirSync(this.claudeDir, { recursive: true, mode: 0o700 });
     }
 
     // Create shared directory
-    if (!fs.existsSync(this.sharedDir)) {
+    if (!this.getLstatSync(this.sharedDir)) {
       fs.mkdirSync(this.sharedDir, { recursive: true, mode: 0o700 });
     }
 
@@ -207,7 +213,7 @@ class SharedManager {
       const sharedPath = path.join(this.sharedDir, item.name);
 
       // Create in ~/.claude/ if missing
-      if (!fs.existsSync(claudePath)) {
+      if (!this.getLstatSync(claudePath)) {
         if (item.type === 'directory') {
           fs.mkdirSync(claudePath, { recursive: true, mode: 0o700 });
         } else if (item.type === 'file') {
@@ -223,7 +229,7 @@ class SharedManager {
       }
 
       // If already a symlink pointing to correct target, skip
-      if (fs.existsSync(sharedPath)) {
+      if (this.getLstatSync(sharedPath)) {
         try {
           const stats = fs.lstatSync(sharedPath);
           if (stats.isSymbolicLink()) {
@@ -1631,6 +1637,17 @@ class SharedManager {
   private async getLstat(targetPath: string): Promise<fs.Stats | null> {
     try {
       return await fs.promises.lstat(targetPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  private getLstatSync(targetPath: string): fs.Stats | null {
+    try {
+      return fs.lstatSync(targetPath);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return null;
