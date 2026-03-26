@@ -625,7 +625,7 @@ router.delete('/:profile/presets/:name', (req: Request, res: Response): void => 
 // ==================== Auth Tokens ====================
 
 /**
- * GET /api/settings/auth/antigravity-risk - Get AGY responsibility bypass setting
+ * GET /api/settings/auth/antigravity-risk - Get shared power user bypass setting
  */
 router.get('/auth/antigravity-risk', (req: Request, res: Response): void => {
   if (!requireSensitiveLocalAccess(req, res)) return;
@@ -636,12 +636,12 @@ router.get('/auth/antigravity-risk', (req: Request, res: Response): void => {
       antigravityAckBypass: config.cliproxy?.safety?.antigravity_ack_bypass === true,
     });
   } catch (error) {
-    respondInternalError(res, error, 'Failed to load Antigravity power user mode.');
+    respondInternalError(res, error, 'Failed to load power user mode.');
   }
 });
 
 /**
- * PUT /api/settings/auth/antigravity-risk - Update AGY responsibility bypass setting
+ * PUT /api/settings/auth/antigravity-risk - Update shared power user bypass setting
  */
 router.put('/auth/antigravity-risk', (req: Request, res: Response): void => {
   if (!requireSensitiveLocalAccess(req, res)) return;
