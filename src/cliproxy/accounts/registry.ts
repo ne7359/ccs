@@ -63,19 +63,47 @@ function inferEmailFromTokenFileName(tokenFile: string): string | undefined {
   return match?.[1];
 }
 
+interface RegistryPopulationIssue {
+  tokenFile: string;
+  paused: boolean;
+  reason: string;
+}
+
+function describeRegistryPopulationIssue(issue: RegistryPopulationIssue): string {
+  const sourceDir = issue.paused ? 'auth-paused' : 'auth';
+  return `${sourceDir}/${issue.tokenFile} (${issue.reason})`;
+}
+
+function getRegistryPopulationIssueReason(error: unknown): string {
+  if (error instanceof SyntaxError) {
+    return 'invalid JSON';
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  return 'unreadable token file';
+}
+
 function populateRegistryFromTokenFiles(
   registry: AccountsRegistry,
   options: { includePaused?: boolean } = {}
-): void {
+): RegistryPopulationIssue[] {
+  const issues: RegistryPopulationIssue[] = [];
+
   for (const token of listRecoverableTokenFiles(options)) {
     try {
       const content = fs.readFileSync(token.filePath, 'utf-8');
       const data = JSON.parse(content) as {
-        type?: string;
-        email?: string;
-        project_id?: string;
+        type?: unknown;
+        email?: unknown;
+        project_id?: unknown;
       };
-      if (!data.type) {
+      if (typeof data.type !== 'string' || !data.type.trim()) {
+        issues.push({
+          tokenFile: token.tokenFile,
+          paused: token.paused,
+          reason: 'invalid token type',
+        });
         continue;
       }
 
@@ -139,27 +167,58 @@ function populateRegistryFromTokenFiles(
       }
 
       providerAccounts.accounts[accountId] = accountMeta;
-    } catch {
+    } catch (error) {
+      issues.push({
+        tokenFile: token.tokenFile,
+        paused: token.paused,
+        reason: getRegistryPopulationIssueReason(error),
+      });
       continue;
     }
   }
+
+  return issues;
 }
 
-function backupCorruptedAccountsRegistry(registryPath: string): void {
-  if (!fs.existsSync(registryPath)) {
-    return;
+function getCorruptedRegistryBackupPath(registryPath: string): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupBasePath = `${registryPath}.corrupt-${timestamp}`;
+  let backupPath = `${backupBasePath}.bak`;
+  let suffix = 1;
+
+  while (fs.existsSync(backupPath)) {
+    backupPath = `${backupBasePath}-${suffix}.bak`;
+    suffix++;
   }
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupPath = `${registryPath}.corrupt-${timestamp}.bak`;
+  return backupPath;
+}
+
+function backupCorruptedAccountsRegistry(registryPath: string): string | null {
+  if (!fs.existsSync(registryPath)) {
+    return null;
+  }
+
+  const backupPath = getCorruptedRegistryBackupPath(registryPath);
   fs.renameSync(registryPath, backupPath);
+  return backupPath;
 }
 
 function recoverAccountsRegistryFromCorruption(registryPath: string): AccountsRegistry {
-  backupCorruptedAccountsRegistry(registryPath);
+  const backupPath = backupCorruptedAccountsRegistry(registryPath);
   const recovered = createDefaultRegistry();
-  populateRegistryFromTokenFiles(recovered, { includePaused: true });
+  const issues = populateRegistryFromTokenFiles(recovered, { includePaused: true });
   writeAccountsRegistryToDisk(recovered);
+
+  if (issues.length > 0) {
+    const recoveredFrom = backupPath || registryPath;
+    console.error(
+      `[!] Recovered corrupted account registry from ${recoveredFrom}, but skipped ${issues.length} token file(s): ${issues
+        .map(describeRegistryPopulationIssue)
+        .join(', ')}`
+    );
+  }
+
   return recovered;
 }
 
