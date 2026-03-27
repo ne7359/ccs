@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { MaskedInput } from '@/components/ui/masked-input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   AlertCircle,
@@ -19,7 +20,12 @@ import {
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useRawConfig, useWebSearchConfig } from '../../hooks';
-import type { CliStatus, WebSearchProvidersConfig } from '../../types';
+import type {
+  CliStatus,
+  WebSearchApiKeyProviderId,
+  WebSearchApiKeyState,
+  WebSearchProvidersConfig,
+} from '../../types';
 import { ProviderCard, type ProviderFieldConfig } from './provider-card';
 
 type ProviderId = 'exa' | 'tavily' | 'brave' | 'duckduckgo' | 'gemini' | 'opencode' | 'grok';
@@ -325,6 +331,31 @@ function getConfiguredValue(
   return String(configured ?? field.defaultValue);
 }
 
+function isApiKeyProvider(providerId: ProviderId): providerId is WebSearchApiKeyProviderId {
+  return providerId === 'exa' || providerId === 'tavily' || providerId === 'brave';
+}
+
+function getApiKeySummary(apiKeyState: WebSearchApiKeyState | undefined): string {
+  if (!apiKeyState?.configured) {
+    return 'Not stored';
+  }
+
+  if (!apiKeyState.available && apiKeyState.source === 'global_env') {
+    return 'Stored in dashboard, but Global Env is disabled';
+  }
+
+  switch (apiKeyState.source) {
+    case 'global_env':
+      return 'Stored in dashboard';
+    case 'process_env':
+      return 'Detected from shell env';
+    case 'both':
+      return 'Stored in dashboard + shell env';
+    case 'none':
+      return 'Not stored';
+  }
+}
+
 export default function WebSearchSection() {
   const { t } = useTranslation();
   const {
@@ -341,7 +372,13 @@ export default function WebSearchSection() {
   } = useWebSearchConfig();
   const { fetchRawConfig } = useRawConfig();
   const [fieldDrafts, setFieldDrafts] = useState<Record<string, string>>({});
+  const [apiKeyDrafts, setApiKeyDrafts] = useState<
+    Partial<Record<WebSearchApiKeyProviderId, string>>
+  >({});
   const [savedFieldId, setSavedFieldId] = useState<string | null>(null);
+  const [savedApiKeyProvider, setSavedApiKeyProvider] = useState<WebSearchApiKeyProviderId | null>(
+    null
+  );
   const [legacyExpanded, setLegacyExpanded] = useState(false);
 
   useEffect(() => {
@@ -368,7 +405,7 @@ export default function WebSearchSection() {
 
   const toggleProvider = async (providerId: ProviderId, enabled: boolean) => {
     const currentProviders = (config?.providers ?? {}) as WebSearchProvidersConfig;
-    await saveConfig({
+    const saved = await saveConfig({
       providers: {
         ...currentProviders,
         [providerId]: {
@@ -377,6 +414,10 @@ export default function WebSearchSection() {
         },
       },
     });
+
+    if (saved) {
+      await fetchRawConfig();
+    }
   };
 
   const updateDraft = (providerId: ProviderId, fieldKey: ProviderFieldKey, value: string) => {
@@ -414,9 +455,49 @@ export default function WebSearchSection() {
     });
 
     if (saved) {
+      await fetchRawConfig();
       setSavedFieldId(fieldId);
       setTimeout(() => {
         setSavedFieldId((current) => (current === fieldId ? null : current));
+      }, 1200);
+    }
+  };
+
+  const saveApiKey = async (providerId: WebSearchApiKeyProviderId) => {
+    const nextValue = apiKeyDrafts[providerId]?.trim() ?? '';
+    if (!nextValue) {
+      return;
+    }
+
+    const saved = await saveConfig({
+      apiKeys: {
+        [providerId]: nextValue,
+      },
+    });
+
+    if (saved) {
+      await fetchRawConfig();
+      setApiKeyDrafts((current) => ({ ...current, [providerId]: '' }));
+      setSavedApiKeyProvider(providerId);
+      setTimeout(() => {
+        setSavedApiKeyProvider((current) => (current === providerId ? null : current));
+      }, 1200);
+    }
+  };
+
+  const removeApiKey = async (providerId: WebSearchApiKeyProviderId) => {
+    const saved = await saveConfig({
+      apiKeys: {
+        [providerId]: '',
+      },
+    });
+
+    if (saved) {
+      await fetchRawConfig();
+      setApiKeyDrafts((current) => ({ ...current, [providerId]: '' }));
+      setSavedApiKeyProvider(providerId);
+      setTimeout(() => {
+        setSavedApiKeyProvider((current) => (current === providerId ? null : current));
       }, 1200);
     }
   };
@@ -611,7 +692,80 @@ export default function WebSearchSection() {
                           void toggleProvider(provider.id, enabled);
                         }}
                         fields={buildFields(provider)}
-                      />
+                      >
+                        {isApiKeyProvider(provider.id) && (
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                                  API Key
+                                </p>
+                                <p className="mt-1 text-sm text-foreground/90">
+                                  {getApiKeySummary(config?.apiKeys?.[provider.id])}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {config?.apiKeys?.[provider.id]?.maskedValue
+                                    ? `${config.apiKeys[provider.id]?.envVar} ${config.apiKeys[provider.id]?.maskedValue}`
+                                    : `Store ${provider.badge} here so the backend is ready immediately after you enable it.`}
+                                </p>
+                              </div>
+                              {savedApiKeyProvider === provider.id && (
+                                <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                                  Saved
+                                </span>
+                              )}
+                            </div>
+
+                            <MaskedInput
+                              id={`${provider.id}.api-key`}
+                              value={apiKeyDrafts[provider.id] ?? ''}
+                              onChange={(event) =>
+                                setApiKeyDrafts((current) => ({
+                                  ...current,
+                                  [provider.id]: event.target.value,
+                                }))
+                              }
+                              placeholder={
+                                config?.apiKeys?.[provider.id]?.configured
+                                  ? 'Enter a new key to rotate the stored secret'
+                                  : `Paste ${provider.badge}`
+                              }
+                              className="bg-background/80 font-mono text-sm"
+                              disabled={saving}
+                            />
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  void saveApiKey(provider.id);
+                                }}
+                                disabled={
+                                  saving || !(apiKeyDrafts[provider.id]?.trim() ?? '').length
+                                }
+                              >
+                                {config?.apiKeys?.[provider.id]?.configured
+                                  ? 'Update key'
+                                  : 'Save key'}
+                              </Button>
+
+                              {(config?.apiKeys?.[provider.id]?.source === 'global_env' ||
+                                config?.apiKeys?.[provider.id]?.source === 'both') && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    void removeApiKey(provider.id);
+                                  }}
+                                  disabled={saving}
+                                >
+                                  Remove stored key
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </ProviderCard>
                     </div>
                   );
                 })}

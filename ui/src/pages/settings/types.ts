@@ -14,6 +14,17 @@ export interface ProviderConfig {
   max_results?: number;
 }
 
+export type WebSearchApiKeyProviderId = 'exa' | 'tavily' | 'brave';
+export type WebSearchApiKeySource = 'global_env' | 'process_env' | 'both' | 'none';
+
+export interface WebSearchApiKeyState {
+  envVar: string;
+  configured: boolean;
+  available: boolean;
+  source: WebSearchApiKeySource;
+  maskedValue?: string;
+}
+
 export interface WebSearchProvidersConfig {
   exa?: ProviderConfig;
   tavily?: ProviderConfig;
@@ -27,6 +38,13 @@ export interface WebSearchProvidersConfig {
 export interface WebSearchConfig {
   enabled: boolean;
   providers?: WebSearchProvidersConfig;
+  apiKeys?: Partial<Record<WebSearchApiKeyProviderId, WebSearchApiKeyState>>;
+}
+
+export interface WebSearchSavePayload {
+  enabled?: boolean;
+  providers?: WebSearchProvidersConfig;
+  apiKeys?: Partial<Record<WebSearchApiKeyProviderId, string | null>>;
 }
 
 export interface CliStatus {

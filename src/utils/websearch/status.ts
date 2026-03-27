@@ -11,14 +11,11 @@ import { getWebSearchConfig } from '../../config/unified-config-loader';
 import { getGeminiCliStatus, isGeminiAuthenticated } from './gemini-cli';
 import { getGrokCliStatus } from './grok-cli';
 import { getOpenCodeCliStatus } from './opencode-cli';
+import { getWebSearchApiKeyStates } from './provider-secrets';
 import type { WebSearchCliInfo, WebSearchStatus } from './types';
 
 function hasEnvValue(name: string): boolean {
   return (process.env[name] || '').trim().length > 0;
-}
-
-function hasAnyEnvValue(names: string[]): boolean {
-  return names.some((name) => hasEnvValue(name));
 }
 
 function getLegacyProviderStatuses(): WebSearchCliInfo[] {
@@ -88,40 +85,41 @@ function getLegacyProviderStatuses(): WebSearchCliInfo[] {
  */
 export function getWebSearchCliProviders(): WebSearchCliInfo[] {
   const wsConfig = getWebSearchConfig();
+  const apiKeyStates = getWebSearchApiKeyStates();
   const providers: WebSearchCliInfo[] = [
     {
       id: 'exa',
       kind: 'backend',
       name: 'Exa',
       enabled: wsConfig.providers?.exa?.enabled ?? false,
-      available:
-        (wsConfig.providers?.exa?.enabled ?? false) &&
-        hasAnyEnvValue(['EXA_API_KEY', 'CCS_WEBSEARCH_EXA_API_KEY']),
+      available: (wsConfig.providers?.exa?.enabled ?? false) && apiKeyStates.exa.available,
       version: null,
       docsUrl: 'https://docs.exa.ai/reference/search',
       requiresApiKey: true,
       apiKeyEnvVar: 'EXA_API_KEY',
       description: 'API-backed search with strong relevance and content extraction.',
-      detail: hasAnyEnvValue(['EXA_API_KEY', 'CCS_WEBSEARCH_EXA_API_KEY'])
+      detail: apiKeyStates.exa.available
         ? `API key detected (${wsConfig.providers?.exa?.max_results ?? 5} results)`
-        : 'Set EXA_API_KEY',
+        : apiKeyStates.exa.configured
+          ? 'Stored in dashboard, but Global Env is disabled'
+          : 'Set EXA_API_KEY',
     },
     {
       id: 'tavily',
       kind: 'backend',
       name: 'Tavily',
       enabled: wsConfig.providers?.tavily?.enabled ?? false,
-      available:
-        (wsConfig.providers?.tavily?.enabled ?? false) &&
-        hasAnyEnvValue(['TAVILY_API_KEY', 'CCS_WEBSEARCH_TAVILY_API_KEY']),
+      available: (wsConfig.providers?.tavily?.enabled ?? false) && apiKeyStates.tavily.available,
       version: null,
       docsUrl: 'https://docs.tavily.com/documentation/api-reference/endpoint/search',
       requiresApiKey: true,
       apiKeyEnvVar: 'TAVILY_API_KEY',
       description: 'Search API optimized for agent workflows and concise web result synthesis.',
-      detail: hasAnyEnvValue(['TAVILY_API_KEY', 'CCS_WEBSEARCH_TAVILY_API_KEY'])
+      detail: apiKeyStates.tavily.available
         ? `API key detected (${wsConfig.providers?.tavily?.max_results ?? 5} results)`
-        : 'Set TAVILY_API_KEY',
+        : apiKeyStates.tavily.configured
+          ? 'Stored in dashboard, but Global Env is disabled'
+          : 'Set TAVILY_API_KEY',
     },
     {
       id: 'duckduckgo',
@@ -140,17 +138,17 @@ export function getWebSearchCliProviders(): WebSearchCliInfo[] {
       kind: 'backend',
       name: 'Brave Search',
       enabled: wsConfig.providers?.brave?.enabled ?? false,
-      available:
-        (wsConfig.providers?.brave?.enabled ?? false) &&
-        hasAnyEnvValue(['BRAVE_API_KEY', 'CCS_WEBSEARCH_BRAVE_API_KEY']),
+      available: (wsConfig.providers?.brave?.enabled ?? false) && apiKeyStates.brave.available,
       version: null,
       docsUrl: 'https://brave.com/search/api/',
       requiresApiKey: true,
       apiKeyEnvVar: 'BRAVE_API_KEY',
       description: 'API-backed web search with cleaner result metadata.',
-      detail: hasAnyEnvValue(['BRAVE_API_KEY', 'CCS_WEBSEARCH_BRAVE_API_KEY'])
+      detail: apiKeyStates.brave.available
         ? `API key detected (${wsConfig.providers?.brave?.max_results ?? 5} results)`
-        : 'Set BRAVE_API_KEY',
+        : apiKeyStates.brave.configured
+          ? 'Stored in dashboard, but Global Env is disabled'
+          : 'Set BRAVE_API_KEY',
     },
   ];
 

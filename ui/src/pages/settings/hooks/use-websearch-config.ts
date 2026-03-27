@@ -4,7 +4,7 @@
 
 import { useCallback } from 'react';
 import { useSettingsContext, useSettingsActions } from './context-hooks';
-import type { WebSearchConfig } from '../types';
+import type { WebSearchConfig, WebSearchSavePayload } from '../types';
 
 export function useWebSearchConfig() {
   const { state } = useSettingsContext();
@@ -40,14 +40,15 @@ export function useWebSearchConfig() {
   }, [actions]);
 
   const saveConfig = useCallback(
-    async (updates: Partial<WebSearchConfig>) => {
+    async (updates: WebSearchSavePayload) => {
       const config = state.webSearchConfig;
       if (!config) return false;
 
-      const optimisticConfig = {
+      const optimisticConfig: WebSearchConfig = {
         ...config,
         ...updates,
         providers: { ...config.providers, ...updates.providers },
+        apiKeys: config.apiKeys,
       };
       actions.setWebSearchConfig(optimisticConfig);
 
@@ -55,10 +56,18 @@ export function useWebSearchConfig() {
         actions.setWebSearchSaving(true);
         actions.setWebSearchError(null);
 
+        const requestBody: WebSearchSavePayload = {
+          enabled: optimisticConfig.enabled,
+          providers: optimisticConfig.providers,
+        };
+        if (updates.apiKeys) {
+          requestBody.apiKeys = updates.apiKeys;
+        }
+
         const res = await fetch('/api/websearch', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(optimisticConfig),
+          body: JSON.stringify(requestBody),
         });
 
         if (!res.ok) {

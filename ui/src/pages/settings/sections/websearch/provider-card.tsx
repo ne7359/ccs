@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +33,7 @@ export interface ProviderCardProps {
   docsUrl?: string;
   installCommand?: string;
   footerNote?: string;
+  children?: ReactNode;
 }
 
 const PROVIDER_TONE_STYLES = {
@@ -113,6 +114,7 @@ export function ProviderCard({
   docsUrl,
   installCommand,
   footerNote,
+  children,
 }: ProviderCardProps) {
   const tone = PROVIDER_TONE_STYLES[badgeTone];
   const status = getStatusToneStyles(statusTone);
@@ -214,6 +216,12 @@ export function ProviderCard({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {enabled && children && (
+        <div className="relative mt-4 rounded-xl border border-border/65 bg-background/70 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-sm">
+          {children}
         </div>
       )}
 

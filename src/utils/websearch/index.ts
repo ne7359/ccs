@@ -18,6 +18,8 @@ export type {
   WebSearchConfig,
 } from './types';
 
+export type { WebSearchApiKeyState } from './provider-secrets';
+
 // Gemini CLI
 export {
   getGeminiCliStatus,
@@ -55,6 +57,8 @@ export {
   getWebSearchReadiness,
   displayWebSearchStatus,
 } from './status';
+
+export { WEBSEARCH_API_KEY_PROVIDERS, getWebSearchApiKeyStates } from './provider-secrets';
 
 // Profile Hook Injection
 export { ensureProfileHooks, removeMigrationMarker } from './profile-hook-injector';

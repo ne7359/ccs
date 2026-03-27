@@ -6,8 +6,19 @@ import { Router, Request, Response } from 'express';
 import { mutateUnifiedConfig, getWebSearchConfig } from '../../config/unified-config-loader';
 import type { WebSearchConfig } from '../../config/unified-config-types';
 import { getWebSearchReadiness, getWebSearchCliProviders } from '../../utils/websearch-manager';
+import {
+  applyWebSearchApiKeyUpdates,
+  getWebSearchApiKeyStates,
+  type WebSearchApiKeyProviderId,
+} from '../../utils/websearch/provider-secrets';
 
 const router = Router();
+
+type WebSearchApiKeyUpdates = Partial<Record<WebSearchApiKeyProviderId, string | null>>;
+
+interface WebSearchDashboardPayload extends Partial<WebSearchConfig> {
+  apiKeys?: WebSearchApiKeyUpdates;
+}
 
 /**
  * GET /api/websearch - Get WebSearch configuration
@@ -16,7 +27,10 @@ const router = Router();
 router.get('/', (_req: Request, res: Response): void => {
   try {
     const config = getWebSearchConfig();
-    res.json(config);
+    res.json({
+      ...config,
+      apiKeys: getWebSearchApiKeyStates(),
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -27,7 +41,7 @@ router.get('/', (_req: Request, res: Response): void => {
  * Body: WebSearchConfig fields (enabled, providers)
  */
 router.put('/', (req: Request, res: Response): void => {
-  const { enabled, providers } = req.body as Partial<WebSearchConfig>;
+  const { enabled, providers, apiKeys } = req.body as WebSearchDashboardPayload;
 
   // Validate enabled
   if (enabled !== undefined && typeof enabled !== 'boolean') {
@@ -41,8 +55,27 @@ router.put('/', (req: Request, res: Response): void => {
     return;
   }
 
+  if (apiKeys !== undefined && typeof apiKeys !== 'object') {
+    res.status(400).json({ error: 'Invalid value for apiKeys. Must be an object.' });
+    return;
+  }
+
+  if (apiKeys) {
+    for (const [providerId, value] of Object.entries(apiKeys)) {
+      if (!['exa', 'tavily', 'brave'].includes(providerId)) {
+        res.status(400).json({ error: `Unsupported WebSearch provider: ${providerId}` });
+        return;
+      }
+
+      if (value !== null && value !== undefined && typeof value !== 'string') {
+        res.status(400).json({ error: `Invalid value for ${providerId} API key` });
+        return;
+      }
+    }
+  }
+
   try {
-    const existingConfig = mutateUnifiedConfig((config) => {
+    mutateUnifiedConfig((config) => {
       config.websearch = {
         enabled: enabled ?? config.websearch?.enabled ?? true,
         providers: providers
@@ -116,11 +149,21 @@ router.put('/', (req: Request, res: Response): void => {
             }
           : config.websearch?.providers,
       };
+
+      if (apiKeys) {
+        config.global_env = {
+          enabled: config.global_env?.enabled ?? true,
+          env: applyWebSearchApiKeyUpdates(config.global_env?.env ?? {}, apiKeys),
+        };
+      }
     });
 
     res.json({
       success: true,
-      websearch: existingConfig.websearch,
+      websearch: {
+        ...getWebSearchConfig(),
+        apiKeys: getWebSearchApiKeyStates(),
+      },
     });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
