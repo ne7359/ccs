@@ -300,7 +300,6 @@ jobs:
             --model ${{ env.REVIEW_MODEL }}
             --permission-mode bypassPermissions
             --max-turns 50
-            --allowedTools "Agent,Glob,Grep,Read,Write,Bash(gh pr diff *),Bash(gh pr view *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(cat *),Bash(ls *),Bash(wc *),Bash(head *),Bash(tail *),Bash(find *)"
 
       # Fallback: if Claude didn't write the review file, extract from execution output
       - name: Extract review from execution output (fallback)
