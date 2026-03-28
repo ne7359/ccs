@@ -37,8 +37,9 @@ async function runCliproxy(): Promise<number> {
     // Register session lock so dashboard can detect the running proxy
     let sessionId: string | undefined;
     child.on('spawn', () => {
-      const version = getInstalledCliproxyVersion() ?? undefined;
-      sessionId = registerSession(CLIPROXY_DEFAULT_PORT, child.pid ?? 0, version, 'plus');
+      if (!child.pid) return;
+      const version = getInstalledCliproxyVersion();
+      sessionId = registerSession(CLIPROXY_DEFAULT_PORT, child.pid, version, 'plus');
     });
 
     child.on('error', reject);

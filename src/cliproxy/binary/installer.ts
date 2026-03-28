@@ -50,7 +50,7 @@ export async function downloadAndInstall(
         if (verbose)
           console.error(`[cliproxy] Binary is running, skipping update: ${existingBinary}`);
         throw new Error(
-          `CLIProxy binary is currently running and cannot be replaced. Stop the running instance first, or use 'ccs docker update' to update in place.`
+          'CLIProxy binary is currently running and cannot be replaced. Restart the container to apply the update.'
         );
       }
       throw error;
@@ -114,8 +114,17 @@ export function deleteBinary(binPath: string, verbose = false, backend?: CLIProx
   const effectiveBackend = backend ?? DEFAULT_BACKEND;
   const binaryPath = path.join(binPath, getExecutableName(effectiveBackend));
   if (fs.existsSync(binaryPath)) {
-    fs.unlinkSync(binaryPath);
-    if (verbose) console.error(`[cliproxy] Deleted: ${binaryPath}`);
+    try {
+      fs.unlinkSync(binaryPath);
+      if (verbose) console.error(`[cliproxy] Deleted: ${binaryPath}`);
+    } catch (error: unknown) {
+      const code =
+        error instanceof Error && 'code' in error ? (error as { code: string }).code : '';
+      if (code === 'ETXTBSY' || code === 'EBUSY') {
+        throw new Error('CLIProxy binary is currently running and cannot be deleted.');
+      }
+      throw error;
+    }
   }
 }
 

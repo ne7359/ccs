@@ -158,14 +158,16 @@ export async function checkCliproxyPort(): Promise<HealthCheck> {
     };
   }
 
-  if (status.blocked && status.blocker) {
+  if (status.blocked) {
     return {
       id: 'cliproxy-port',
       name: 'CLIProxy Port',
       status: 'warning',
-      message: `Occupied by ${status.blocker.processName}`,
-      details: `PID ${status.blocker.pid}`,
-      fix: `Kill process: kill ${status.blocker.pid}`,
+      message: status.blocker
+        ? `Occupied by ${status.blocker.processName}`
+        : 'Port occupied by unknown process',
+      details: status.blocker ? `PID ${status.blocker.pid}` : undefined,
+      ...(status.blocker && { fix: `Kill process: kill ${status.blocker.pid}` }),
     };
   }
 
