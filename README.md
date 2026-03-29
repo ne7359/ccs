@@ -197,13 +197,19 @@ ccs api import ./glm.ccs-profile.json        # Import exported profile bundle
 
 ### Runtime Aliases (built-in bins / `argv[0]` pattern)
 
-Built-in Droid runtime aliases are installed with the package:
+Built-in Droid and native Codex runtime aliases are installed with the package:
 
 ```bash
 ccs-droid glm   # explicit alias
 ccsd glm        # legacy shortcut
-ccs-codex       # explicit Codex alias
-ccsx            # short Codex alias
+ccs-codex       # explicit native Codex alias
+ccsx            # short native Codex alias
+```
+
+CCS also ships an opinionated Codex provider shortcut:
+
+```bash
+ccsxp           # same as: ccs codex --target codex
 ```
 
 Need additional alias names? First create the matching symlink or another launcher that
@@ -255,8 +261,9 @@ Supported in v1:
 ```bash
 ccs --target codex                 # native Codex default session
 ccs-codex                          # explicit Codex alias
-ccsx                               # short alias
-ccs codex --target codex           # built-in CLIProxy Codex on native Codex
+ccsx                               # short native Codex alias
+ccsxp                              # built-in CCS Codex provider on native Codex
+ccs codex --target codex           # explicit equivalent of ccsxp
 ccs api create codex-api --cliproxy-provider codex
 ccs codex-api --target codex       # Codex bridge profile on native Codex
 ```
@@ -286,6 +293,42 @@ be absolute or start with `~/`, and supported feature flags can be cleared back 
 with `Use default`. CCS also keeps warning that transient runtime overrides such as
 `codex -c key=value` and `CCS_CODEX_API_KEY` can change the effective runtime without persisting
 back into the user config file.
+
+#### CLIProxy-backed native Codex
+
+There are two supported ways to use CLIProxy with native Codex:
+
+1. `ccsxp` or `ccs codex --target codex`
+   Uses the built-in CCS Codex provider route on native Codex. This path relies on transient
+   CCS-managed `-c` overrides and does **not** require changing your saved `model_provider`.
+
+2. Plain `codex` or a personal alias like `cxp`
+   Save CLIProxy as the native default provider in `~/.codex/config.toml` (or
+   `$CODEX_HOME/config.toml`), then export `CLIPROXY_API_KEY` in your shell.
+
+```toml
+model_provider = "cliproxy"
+
+[model_providers.cliproxy]
+base_url = "http://127.0.0.1:8317/api/provider/codex"
+env_key = "CLIPROXY_API_KEY"
+wire_api = "responses"
+```
+
+The top-level `model_provider = "cliproxy"` line is required. Defining only
+`[model_providers.cliproxy]` is not enough for plain `codex` to pick it by default.
+
+```bash
+export CLIPROXY_API_KEY="ccs-internal-managed"
+ccsxp "your prompt"                # CCS shortcut for the built-in provider route
+codex "your prompt"                # native Codex using your saved cliproxy default
+```
+
+Dashboard parity: `ccs config` -> `Compatible` -> `Codex CLI`
+
+- `Overview`: explains `ccsx` vs `ccsxp`
+- `Top-level settings`: set **Default provider** to `cliproxy`
+- `Model providers`: save `cliproxy` with `env_key = "CLIPROXY_API_KEY"`
 
 ### Per-Profile Target Defaults
 

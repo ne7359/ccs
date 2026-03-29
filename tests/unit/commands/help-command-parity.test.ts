@@ -106,8 +106,12 @@ describe('help command parity', () => {
     const rendered = stripAnsi(lines.join('\n'));
     expect(rendered.includes('ccs-codex <profile> [args]')).toBe(true);
     expect(rendered.includes('ccsx <profile> [args]')).toBe(true);
+    expect(rendered.includes('ccsxp [args]')).toBe(true);
     expect(rendered.includes('ccs --target codex')).toBe(true);
+    expect(rendered.includes('ccsxp "your prompt"')).toBe(true);
     expect(rendered.includes('ccs codex-api --target codex')).toBe(true);
+    expect(rendered.includes('Compatible -> Codex CLI')).toBe(true);
+    expect(rendered.includes('CLIPROXY_API_KEY')).toBe(true);
     expect(rendered.includes('codex (runtime-only)')).toBe(true);
   });
 
