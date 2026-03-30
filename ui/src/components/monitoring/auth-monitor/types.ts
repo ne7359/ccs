@@ -2,12 +2,15 @@
  * Type definitions for Auth Monitor components
  */
 
+import type { AccountVisualVariant } from '@/lib/account-visual-groups';
+
 /** Account tier for subscription level */
 export type AccountTier = 'free' | 'pro' | 'ultra' | 'unknown';
 
 export interface AccountRow {
   id: string;
   email: string;
+  tokenFile: string;
   provider: string;
   displayName: string;
   isDefault: boolean;
@@ -21,6 +24,10 @@ export interface AccountRow {
   paused?: boolean;
   /** Account tier (Antigravity only) */
   tier?: AccountTier;
+  /** Raw member IDs when one visual card represents multiple underlying auth records */
+  memberIds?: string[];
+  /** Raw variant details shown inside grouped visual cards */
+  variants?: AccountVisualVariant[];
 }
 
 export interface ProviderStats {

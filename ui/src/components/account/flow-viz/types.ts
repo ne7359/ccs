@@ -2,6 +2,8 @@
  * Type definitions for Account Flow Visualization
  */
 
+import type { AccountVisualVariant } from '@/lib/account-visual-groups';
+
 /** Account tier for subscription level */
 export type AccountTier = 'free' | 'pro' | 'ultra' | 'unknown';
 
@@ -14,7 +16,9 @@ export interface DragOffset {
 export interface AccountData {
   id: string;
   email: string;
+  tokenFile?: string;
   provider: string;
+  isDefault?: boolean;
   successCount: number;
   failureCount: number;
   lastUsedAt?: string;
@@ -22,6 +26,10 @@ export interface AccountData {
   paused?: boolean;
   /** Account tier (Antigravity only) */
   tier?: AccountTier;
+  /** Raw member IDs when one visual card represents multiple underlying auth records */
+  memberIds?: string[];
+  /** Raw variant details shown inside grouped visual cards */
+  variants?: AccountVisualVariant[];
 }
 
 export interface ProviderData {
@@ -34,7 +42,7 @@ export interface ProviderData {
 export interface AccountFlowVizProps {
   providerData: ProviderData;
   onBack?: () => void;
-  onPauseToggle?: (accountId: string, paused: boolean) => void;
+  onPauseToggle?: (accountIds: string[], paused: boolean) => void;
   isPausingAccount?: boolean;
 }
 
