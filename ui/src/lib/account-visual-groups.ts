@@ -34,6 +34,12 @@ export interface AccountVisualGroup {
   variants?: AccountVisualVariant[];
 }
 
+const AUDIENCE_ORDER: Record<AccountAudience, number> = {
+  business: 0,
+  personal: 1,
+  unknown: 2,
+};
+
 function getLatestTimestamp(current?: string, candidate?: string): string | undefined {
   if (!candidate) return current;
   if (!current) return candidate;
@@ -62,6 +68,20 @@ function buildAccountVariant(
     audienceLabel: identity.audienceLabel,
     detailLabel: identity.detailLabel,
   };
+}
+
+function sortAccountVariants(variants: AccountVisualVariant[]): AccountVisualVariant[] {
+  return [...variants].sort((left, right) => {
+    const audienceDelta = AUDIENCE_ORDER[left.audience] - AUDIENCE_ORDER[right.audience];
+    if (audienceDelta !== 0) {
+      return audienceDelta;
+    }
+
+    const leftLabel = left.audienceLabel ?? left.detailLabel ?? left.id;
+    const rightLabel = right.audienceLabel ?? right.detailLabel ?? right.id;
+
+    return leftLabel.localeCompare(rightLabel);
+  });
 }
 
 export function buildAccountVisualGroups(
@@ -104,24 +124,25 @@ export function buildAccountVisualGroups(
       };
     }
 
-    const canonicalEmail = variants[0]?.email ?? bucketKey;
-    const originalProvider = accountMeta.get(variants[0]?.id ?? '')?.provider ?? 'codex';
+    const orderedVariants = sortAccountVariants(variants);
+    const canonicalEmail = orderedVariants[0]?.email ?? bucketKey;
+    const originalProvider = accountMeta.get(orderedVariants[0]?.id ?? '')?.provider ?? 'codex';
 
     return {
       id: bucketKey,
       email: canonicalEmail,
-      tokenFile: variants[0]?.tokenFile ?? '',
+      tokenFile: orderedVariants[0]?.tokenFile ?? '',
       provider: originalProvider,
-      isDefault: variants.some((variant) => variant.isDefault),
-      successCount: variants.reduce((sum, variant) => sum + variant.successCount, 0),
-      failureCount: variants.reduce((sum, variant) => sum + variant.failureCount, 0),
-      lastUsedAt: variants.reduce<string | undefined>(
+      isDefault: orderedVariants.some((variant) => variant.isDefault),
+      successCount: orderedVariants.reduce((sum, variant) => sum + variant.successCount, 0),
+      failureCount: orderedVariants.reduce((sum, variant) => sum + variant.failureCount, 0),
+      lastUsedAt: orderedVariants.reduce<string | undefined>(
         (latest, variant) => getLatestTimestamp(latest, variant.lastUsedAt),
         undefined
       ),
-      paused: variants.every((variant) => Boolean(variant.paused)),
-      memberIds: variants.map((variant) => variant.id),
-      variants,
+      paused: orderedVariants.every((variant) => Boolean(variant.paused)),
+      memberIds: orderedVariants.map((variant) => variant.id),
+      variants: orderedVariants,
     };
   });
 }
