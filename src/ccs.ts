@@ -859,7 +859,6 @@ async function main(): Promise<void> {
           )
         );
       }
-      syncWebSearchMcpToConfigDir(continuityInheritance.claudeConfigDir);
       const exitCode = await executeCopilotProfile(
         copilotConfig,
         remainingArgs,
