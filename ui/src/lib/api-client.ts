@@ -912,15 +912,17 @@ export const api = {
           body: JSON.stringify({ accountId }),
         }),
       remove: (provider: string, accountId: string) =>
-        request(`/cliproxy/auth/accounts/${provider}/${accountId}`, { method: 'DELETE' }),
+        request(`/cliproxy/auth/accounts/${provider}/${encodeURIComponent(accountId)}`, {
+          method: 'DELETE',
+        }),
       pause: (provider: string, accountId: string) =>
         request<{ provider: string; accountId: string; paused: boolean }>(
-          `/cliproxy/auth/accounts/${provider}/${accountId}/pause`,
+          `/cliproxy/auth/accounts/${provider}/${encodeURIComponent(accountId)}/pause`,
           { method: 'POST' }
         ),
       resume: (provider: string, accountId: string) =>
         request<{ provider: string; accountId: string; paused: boolean }>(
-          `/cliproxy/auth/accounts/${provider}/${accountId}/resume`,
+          `/cliproxy/auth/accounts/${provider}/${encodeURIComponent(accountId)}/resume`,
           { method: 'POST' }
         ),
       /** Solo mode: activate one account, pause all others */

@@ -197,6 +197,8 @@ function readCodexAuthFile(filePath: string): CodexAuthData | null {
 function readCodexAuthData(accountId: string): CodexAuthData | null {
   const authDirs = [getAuthDir(), getPausedDir()];
   const registryAccount = getAccount('codex', accountId);
+  const canonicalEmail = extractCanonicalEmailFromAccountId(accountId);
+  const hasExplicitVariant = canonicalEmail !== null && canonicalEmail !== accountId;
   if (registryAccount?.tokenFile) {
     for (const authDir of authDirs) {
       const filePath = path.join(authDir, registryAccount.tokenFile);
@@ -211,7 +213,7 @@ function readCodexAuthData(accountId: string): CodexAuthData | null {
     }
   }
 
-  const legacyEmail = extractCanonicalEmailFromAccountId(accountId) ?? accountId;
+  const legacyEmail = canonicalEmail ?? accountId;
   const sanitizedId = sanitizeEmail(legacyEmail);
   const expectedFile = `codex-${sanitizedId}.json`;
 
@@ -226,7 +228,13 @@ function readCodexAuthData(accountId: string): CodexAuthData | null {
       }
     }
 
-    // Fallback: scan directory for matching email in file content
+    // Fallback is only safe for legacy email-only IDs. Variant-backed IDs must resolve
+    // through the registry-backed token file so duplicate-email accounts stay deterministic.
+    if (hasExplicitVariant) {
+      continue;
+    }
+
+    // Fallback: scan directory for matching email in file content.
     const files = fs.readdirSync(authDir);
     for (const file of files) {
       if (file.startsWith('codex-') && file.endsWith('.json')) {

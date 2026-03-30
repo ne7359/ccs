@@ -1,6 +1,9 @@
 const PERSONAL_PLAN_PARTS = new Set(['free', 'plus', 'pro']);
 const BUSINESS_PLAN_PARTS = new Set(['team']);
 
+// Keep variant parsing aligned with src/cliproxy/accounts/email-account-identity.ts.
+// This browser copy stays local because the server module is not bundle-safe for the UI.
+
 export type AccountAudience = 'business' | 'personal' | 'unknown';
 
 export interface AccountIdentityPresentation {

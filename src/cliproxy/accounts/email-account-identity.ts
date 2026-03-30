@@ -2,6 +2,9 @@ import type { CLIProxyProvider } from '../types';
 
 const DUPLICATE_EMAIL_ACCOUNT_PROVIDERS = new Set<string>(['codex']);
 
+// Keep variant parsing aligned with ui/src/lib/account-identity.ts. The UI copy is
+// separate because the browser bundle cannot import this server module directly.
+
 function normalizeProvider(provider: CLIProxyProvider | string): string {
   return provider.trim().toLowerCase();
 }
