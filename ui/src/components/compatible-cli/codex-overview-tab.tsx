@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { CodexDashboardDiagnostics } from '@/hooks/use-codex-types';
+import { CLIPROXY_NATIVE_CODEX_RECIPE } from '@/lib/codex-config';
 import { cn } from '@/lib/utils';
 
 function formatTimestamp(value: number | null | undefined): string {
@@ -58,6 +59,10 @@ interface CodexOverviewTabProps {
 }
 
 export function CodexOverviewTab({ diagnostics }: CodexOverviewTabProps) {
+  const inspectProfileCommand = diagnostics.config.activeProfile
+    ? `codex --profile ${diagnostics.config.activeProfile}`
+    : 'codex';
+
   return (
     <ScrollArea className="h-full">
       <div className="space-y-4 pr-1">
@@ -70,6 +75,21 @@ export function CodexOverviewTab({ diagnostics }: CodexOverviewTabProps) {
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p>Codex is a first-class runtime target in CCS, but it stays runtime-only in v1.</p>
+            <p>
+              <code>ccs-codex</code> and <code>ccsx</code> launch native Codex against your saved
+              native config, while <code>ccsxp</code> is the opinionated shortcut for{' '}
+              <code>ccs codex --target codex</code>.
+            </p>
+            <p>
+              Plain <code>codex</code> or a personal alias like <code>cxp</code> needs{' '}
+              <code>model_provider = "cliproxy"</code> plus a matching{' '}
+              <code>[model_providers.cliproxy]</code> entry if you want CLIProxy as the saved native
+              default.
+            </p>
+            <p>
+              Built-in <code>openai</code> and <code>oss</code> providers are also valid native
+              defaults and do not need a custom <code>[model_providers]</code> stanza.
+            </p>
             <p>
               Saved default targets for API profiles and variants still remain on Claude or Droid.
             </p>
@@ -103,12 +123,47 @@ export function CodexOverviewTab({ diagnostics }: CodexOverviewTabProps) {
               mono
             />
             <DetailRow label="Version" value={diagnostics.binary.version || 'Unknown'} mono />
-            <DetailRow label="Alias commands" value="ccs-codex, ccsx" mono />
+            <DetailRow label="Native aliases" value="ccs-codex, ccsx" mono />
+            <DetailRow label="CCS provider shortcut" value="ccsxp" mono />
             <div className="flex items-center justify-between rounded-md border px-3 py-2">
               <span className="text-sm text-muted-foreground">--config override support</span>
               <Badge variant={diagnostics.binary.supportsConfigOverrides ? 'default' : 'secondary'}>
                 {diagnostics.binary.supportsConfigOverrides ? 'Available' : 'Missing'}
               </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Route className="h-4 w-4" />
+              CLIProxy-backed native Codex
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              There are two supported paths. Use <code>ccsxp</code> if you want the built-in CCS
+              Codex provider shortcut. Use the saved recipe below if you want plain{' '}
+              <code>codex</code> or a personal alias like <code>cxp</code> to default to CLIProxy.
+            </p>
+            <div className="rounded-md border bg-muted/20 p-3">
+              <p className="font-medium text-foreground">Saved native Codex recipe</p>
+              <pre className="mt-2 overflow-x-auto rounded-md bg-background p-3 text-xs text-foreground">
+                {CLIPROXY_NATIVE_CODEX_RECIPE}
+              </pre>
+            </div>
+            <div className="space-y-1">
+              <p>
+                1. Save a provider named <code>cliproxy</code> with the base URL and env key above.
+              </p>
+              <p>
+                2. In <strong>Top-level settings</strong>, set <strong>Default provider</strong> to{' '}
+                <code>cliproxy</code>.
+              </p>
+              <p>
+                3. Export <code>CLIPROXY_API_KEY</code> in your shell before launching native Codex.
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -213,24 +268,28 @@ export function CodexOverviewTab({ diagnostics }: CodexOverviewTabProps) {
         <QuickCommands
           snippets={[
             {
-              label: 'Native Codex',
-              command: 'ccs-codex',
-              description: 'Launch the native Codex runtime alias.',
-            },
-            {
-              label: 'Short alias',
+              label: 'Native short alias',
               command: 'ccsx',
-              description: 'Launch the short Codex runtime alias.',
+              description: 'Launch the short native Codex runtime alias.',
             },
             {
-              label: 'Target override',
+              label: 'CCS Codex shortcut',
+              command: 'ccsxp "your prompt"',
+              description: 'Run the built-in CCS Codex provider on native Codex.',
+            },
+            {
+              label: 'Explicit provider route',
               command: 'ccs codex --target codex "your prompt"',
-              description: 'Run a CCS profile on the native Codex target.',
+              description: 'Use the explicit built-in Codex provider route.',
             },
             {
-              label: 'Workspace trust',
-              command: `codex --profile ${diagnostics.config.activeProfile || 'default'}`,
-              description: 'Inspect the active profile directly in native Codex.',
+              label: diagnostics.config.activeProfile
+                ? 'Inspect active profile'
+                : 'Open native Codex',
+              command: inspectProfileCommand,
+              description: diagnostics.config.activeProfile
+                ? 'Inspect the active named profile directly in native Codex.'
+                : 'Open native Codex without forcing a named profile overlay.',
             },
           ]}
         />
@@ -246,17 +305,16 @@ export function CodexOverviewTab({ diagnostics }: CodexOverviewTabProps) {
             <div className="rounded-md border p-3 text-sm">
               <p className="font-medium">Native Codex runtime</p>
               <p className="mt-1 text-muted-foreground">
-                Use <code>ccs-codex</code>, <code>ccsx</code>, or <code>--target codex</code>. CCS
-                launches the local Codex CLI and depends on native Codex capabilities such as{' '}
-                <code>--config</code> overrides.
+                Use <code>ccs-codex</code>, <code>ccsx</code>, or <code>--target codex</code> when
+                you want the local Codex CLI to honor your saved native user config.
               </p>
             </div>
             <div className="rounded-md border p-3 text-sm">
-              <p className="font-medium">Codex provider / bridge</p>
+              <p className="font-medium">CCS Codex provider / bridge</p>
               <p className="mt-1 text-muted-foreground">
-                CCS can route provider credentials transiently through CLIProxy. That is not the
-                same as editing local <code>config.toml</code>, and some routed values may never
-                persist here.
+                Use <code>ccsxp</code> or <code>ccs codex --target codex</code> when you want the
+                built-in CCS Codex provider on native Codex. That path uses transient CCS-managed
+                overrides and is separate from the saved <code>cliproxy</code> recipe above.
               </p>
             </div>
           </CardContent>

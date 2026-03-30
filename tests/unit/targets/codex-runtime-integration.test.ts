@@ -40,6 +40,21 @@ function runCodexAlias(args: string[], env: NodeJS.ProcessEnv): RunResult {
   };
 }
 
+function runCcsxpAlias(args: string[], env: NodeJS.ProcessEnv): RunResult {
+  const ccsxpEntry = path.join(process.cwd(), 'src', 'bin', 'ccsxp-runtime.ts');
+  const result = spawnSync(process.execPath, [ccsxpEntry, ...args], {
+    encoding: 'utf8',
+    env,
+    timeout: 20000,
+  });
+
+  return {
+    status: result.status,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+  };
+}
+
 function readLoggedCodexCalls(logPath: string): string[][] {
   if (!fs.existsSync(logPath)) {
     return [];
@@ -94,8 +109,9 @@ describe('codex runtime integration', () => {
       `#!/usr/bin/env node
 const fs = require('fs');
 const out = process.env.CCS_TEST_CODEX_ARGS_OUT;
+const cliArgs = process.argv.slice(2);
 if (out) {
-  fs.appendFileSync(out, JSON.stringify(process.argv.slice(2)) + '\\n');
+  fs.appendFileSync(out, JSON.stringify(cliArgs) + '\\n');
 }
 const envOut = process.env.CCS_TEST_CODEX_ENV_OUT;
 if (envOut) {
@@ -110,11 +126,11 @@ if (envOut) {
     }) + '\\n'
   );
 }
-if (process.argv[2] === '--version' || process.argv[2] === '-v') {
+if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
   process.stdout.write(process.env.CCS_TEST_CODEX_VERSION || 'codex-cli 0.118.0-alpha.3');
   process.exit(0);
 }
-if (process.argv[2] === '--help' || process.argv[2] === '-h') {
+if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
   process.stdout.write(
     process.env.CCS_TEST_CODEX_HELP ||
       '  -c, --config <key=value>\\n  -p, --profile <CONFIG_PROFILE>\\n'
@@ -244,10 +260,10 @@ process.exit(0);
     ]);
   });
 
-  it('fails fast when native Codex reasoning overrides need unsupported --config support', () => {
+  it('keeps ccsxp pinned to native Codex even when a user passes another --target override', () => {
     if (process.platform === 'win32') return;
 
-    const result = runCcs(['default', '--target', 'codex', '--effort', 'high', 'fix failing tests'], {
+    const result = runCcsxpAlias(['--target', 'claude', '--version'], {
       ...process.env,
       CI: '1',
       NO_COLOR: '1',
@@ -255,8 +271,63 @@ process.exit(0);
       CCS_CODEX_PATH: fakeCodexPath,
       CCS_TEST_CODEX_ARGS_OUT: codexArgsLogPath,
       CCS_TEST_CODEX_VERSION: 'codex-cli 9.9.9-test',
-      CCS_TEST_CODEX_HELP: '  -p, --profile <CONFIG_PROFILE>\\n',
     });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('codex-cli 9.9.9-test');
+    expect(readLoggedCodexCalls(codexArgsLogPath)).toEqual([['--version']]);
+  });
+
+  it('fails with a clean CLI error when ccsxp receives a malformed --target flag', () => {
+    if (process.platform === 'win32') return;
+
+    const result = runCcsxpAlias(['--target'], {
+      ...process.env,
+      CI: '1',
+      NO_COLOR: '1',
+      CCS_HOME: tmpHome,
+      CCS_CODEX_PATH: fakeCodexPath,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('[X] --target requires a value (claude, droid, codex)');
+    expect(result.stderr).not.toContain('at parseTargetFlags');
+  });
+
+  it('passes ccs codex --target codex --version through to the native Codex binary', () => {
+    if (process.platform === 'win32') return;
+
+    const result = runCcs(['codex', '--target', 'codex', '--version'], {
+      ...process.env,
+      CI: '1',
+      NO_COLOR: '1',
+      CCS_HOME: tmpHome,
+      CCS_CODEX_PATH: fakeCodexPath,
+      CCS_TEST_CODEX_ARGS_OUT: codexArgsLogPath,
+      CCS_TEST_CODEX_VERSION: 'codex-cli 9.9.9-test',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('codex-cli 9.9.9-test');
+    expect(readLoggedCodexCalls(codexArgsLogPath)).toEqual([['--version']]);
+  });
+
+  it('fails fast when native Codex reasoning overrides need unsupported --config support', () => {
+    if (process.platform === 'win32') return;
+
+    const result = runCcs(
+      ['default', '--target', 'codex', '--effort', 'high', 'fix failing tests'],
+      {
+        ...process.env,
+        CI: '1',
+        NO_COLOR: '1',
+        CCS_HOME: tmpHome,
+        CCS_CODEX_PATH: fakeCodexPath,
+        CCS_TEST_CODEX_ARGS_OUT: codexArgsLogPath,
+        CCS_TEST_CODEX_VERSION: 'codex-cli 9.9.9-test',
+        CCS_TEST_CODEX_HELP: '  -p, --profile <CONFIG_PROFILE>\\n',
+      }
+    );
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Codex CLI (codex-cli 9.9.9-test)');

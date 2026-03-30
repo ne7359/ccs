@@ -58,7 +58,7 @@ CCS v7.45 introduces the Target Adapter pattern, enabling seamless integration w
 Profile Resolution (CLIProxy, Settings/API, Account-based)
         |
         v
-Target Resolution (--target flag > argv[0] > config > default)
+Target Resolution (--target flag > runtime entrypoint / argv[0] > config > default)
         |
         v
 Get Target Adapter (Claude, Droid, or Codex)
@@ -91,7 +91,7 @@ Spawn Target Process
   - Preserves native `~/.codex/config.toml` ownership
   - Dashboard page reads/writes only the user config layer with explicit runtime-vs-provider warnings
 
-**Runtime alias pattern (built-in bins / argv[0]-style):**
+**Runtime entrypoints (built-in bins) and argv[0]-style aliases:**
 
 ```
 ccs        → Target: claude (default)
@@ -99,6 +99,7 @@ ccs-droid  → Target: droid (explicit alias)
 ccsd       → Target: droid (legacy shortcut)
 ccs-codex  → Target: codex (explicit alias)
 ccsx       → Target: codex (short alias)
+ccsxp      → Target: codex (provider shortcut; rewrites argv to `ccs codex --target codex`)
 ```
 
 For details on the adapter architecture, see [Target Adapters](./target-adapters.md).

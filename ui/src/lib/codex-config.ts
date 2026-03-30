@@ -49,6 +49,13 @@ export interface CodexFeatureCatalogEntry {
   description: string;
 }
 
+export const CLIPROXY_NATIVE_CODEX_RECIPE = `model_provider = "cliproxy"
+
+[model_providers.cliproxy]
+base_url = "http://127.0.0.1:8317/api/provider/codex"
+env_key = "CLIPROXY_API_KEY"
+wire_api = "responses"`;
+
 export const KNOWN_CODEX_FEATURES: CodexFeatureCatalogEntry[] = [
   {
     name: 'multi_agent',

@@ -177,9 +177,7 @@ function showHelp(): void {
   console.log(
     `  $ ${color('ccs config channels --clear-token discord', 'command')}   ${dim('# Clear one token')}`
   );
-  console.log(
-    `  ${dim('Official Channels only work on native Claude default/account sessions, not on ccs glm or other API/OAuth/Droid targets.')}`
-  );
+  console.log(`  ${dim(getOfficialChannelsSupportMessage())}`);
   console.log('');
 }
 

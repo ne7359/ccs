@@ -36,8 +36,9 @@ The main CLI is organized into domain-specific modules with barrel exports.
 src/
 ├── ccs.ts                    # Main entry point & profile execution flow
 ├── bin/                      # Dedicated runtime entrypoints
-│   ├── droid-runtime.ts      # argv[0] shim for ccs-droid / ccsd
-│   └── codex-runtime.ts      # argv[0] shim for ccs-codex / ccsx
+│   ├── droid-runtime.ts      # Forces droid target for ccs-droid / ccsd package bins
+│   ├── codex-runtime.ts      # Forces codex target for ccs-codex / ccsx package bins
+│   └── ccsxp-runtime.ts      # Forces built-in codex profile + codex target for ccsxp
 ├── types/                    # TypeScript type definitions
 │   ├── index.ts              # Barrel export (aggregates all types)
 │   ├── cli.ts                # CLI types (ParsedArgs, ExitCode)
@@ -69,7 +70,7 @@ src/
 │   ├── index.ts              # Barrel export
 │   ├── target-adapter.ts     # TargetAdapter interface contract
 │   ├── target-registry.ts    # Registry for runtime adapter lookup
-│   ├── target-resolver.ts    # Resolution logic (flag > argv[0] > config)
+│   ├── target-resolver.ts    # Resolution logic (flag > runtime entrypoint / argv[0] > config)
 │   ├── target-metadata.ts    # Runtime vs persisted target metadata and alias lists
 │   ├── target-runtime-compatibility.ts # Guardrails for target/profile combinations
 │   ├── claude-adapter.ts     # Claude Code CLI implementation
@@ -248,7 +249,9 @@ src/
 
 ### Native Codex Runtime Target
 
-- Runtime aliases: `ccs-codex` and `ccsx` resolve through `src/bin/codex-runtime.ts` and `src/targets/target-resolver.ts`.
+- Dedicated runtime entrypoints: `ccs-codex` and `ccsx` resolve through `src/bin/codex-runtime.ts`, while `ccsxp` resolves through `src/bin/ccsxp-runtime.ts`; all three set `CCS_INTERNAL_ENTRY_TARGET=codex` before delegating to `src/targets/target-resolver.ts`.
+- Provider shortcut behavior: `ccsxp` also strips user-supplied `--target` overrides and rewrites argv to `ccs codex --target codex ...`, so it always lands on the built-in Codex-via-CLIProxy route.
+- `argv[0]` alias mapping still exists in `src/targets/target-resolver.ts` for same-binary/custom alias scenarios, but the built-in npm bins above do not depend on that map at runtime.
 - Metadata boundary: `src/targets/target-metadata.ts` keeps Codex runtime-only in v1, so persisted default targets remain `claude | droid`.
 - Compatibility guardrails: `src/targets/target-runtime-compatibility.ts` centralizes which profile types can execute on Codex.
 - Adapter behavior: `src/targets/codex-adapter.ts` and `src/targets/codex-detector.ts` launch native Codex without rewriting `~/.codex/config.toml`; CCS-backed routes use transient `codex -c key=value` overrides and env-key injection.
@@ -279,7 +282,8 @@ The targets module provides an extensible interface for dispatching profiles to 
 
 2. **Target Resolution** - Priority order:
    - `--target <cli>` flag (CLI argument)
-   - `argv[0]` detection (runtime alias pattern: `ccs-droid` / `ccsd` → droid)
+   - Explicit runtime entrypoint via `CCS_INTERNAL_ENTRY_TARGET` (used by `src/bin/droid-runtime.ts`, `src/bin/codex-runtime.ts`, and `src/bin/ccsxp-runtime.ts`)
+   - `argv[0]` detection for custom/same-binary runtime aliases
    - Per-profile `target` field (from config.yaml)
    - Default: `claude`
 

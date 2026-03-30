@@ -85,20 +85,25 @@ CCS resolves which adapter to use via priority-ordered checks:
    └─ ccs --target droid glm
    └─ ccs --target codex
 
-2. argv[0] detection (runtime alias pattern) — binary name mapping
+2. Explicit runtime entrypoint (`CCS_INTERNAL_ENTRY_TARGET`) — dedicated bin shims
+   └─ ccs-droid / ccsd → droid
+   └─ ccs-codex / ccsx → codex
+   └─ ccsxp → codex, then rewrites argv to `ccs codex --target codex ...`
+
+3. argv[0] detection (runtime alias pattern) — binary name mapping for same-binary/custom aliases
    └─ ccs-droid (explicit alias) → droid
    └─ ccsd (legacy shortcut) → droid
    └─ ccs-codex (explicit alias) → codex
    └─ ccsx (short alias) → codex
    └─ ccs (regular command) → default
 
-3. Per-profile config (from ~/.ccs/config.yaml or settings.json)
+4. Per-profile config (from ~/.ccs/config.yaml or settings.json)
    └─ persisted targets are currently only `claude` and `droid`
    └─ profiles:
         glm:
           target: droid
 
-4. Fallback: 'claude' — lowest priority
+5. Fallback: 'claude' — lowest priority
 ```
 
 ### Implementation
@@ -117,19 +122,25 @@ export function resolveTargetType(
     return parsed.targetOverride;
   }
 
-  // 2. Check argv[0] (binary name)
+  // 2. Check explicit runtime entrypoint shim
+  const entrypointTarget = resolveEntrypointTarget();
+  if (entrypointTarget) {
+    return entrypointTarget;
+  }
+
+  // 3. Check argv[0] (binary name / custom alias map)
   const binName = path.basename(process.argv[1] || process.argv0 || '').replace(/\.(cmd|bat|ps1|exe)$/i, '');
   if (ARGV0_TARGET_MAP[binName]) {
     return ARGV0_TARGET_MAP[binName];
   }
 
-  // 3. Check profile config
+  // 4. Check profile config
   if (profileConfig?.target) {
     // Persisted targets intentionally exclude runtime-only codex.
     return profileConfig.target;
   }
 
-  // 4. Default to claude
+  // 5. Default to claude
   return 'claude';
 }
 ```
@@ -488,20 +499,27 @@ longer read-mostly:
 This keeps the dashboard honest about Codex's merged configuration model while still giving users
 one place to inspect and manage the user-owned layer safely.
 
-### Runtime Alias Pattern
+### Runtime Entrypoints and argv[0] Fallback
 
 ```bash
-# Built-in package bin aliases
+# Built-in package bin entrypoints
 ccs-codex
-→ Target: codex (forced by runtime alias)
+→ dist/bin/codex-runtime.js
+→ CCS_INTERNAL_ENTRY_TARGET=codex
 
-ccsx codex
-→ Target: codex (forced by runtime alias)
-→ codex ...args
+ccsx
+→ dist/bin/codex-runtime.js
+→ CCS_INTERNAL_ENTRY_TARGET=codex
+
+ccsxp
+→ dist/bin/ccsxp-runtime.js
+→ CCS_INTERNAL_ENTRY_TARGET=codex
+→ injects built-in codex profile shortcut
 ```
 
-Runtime aliases can also be extended with `CCS_TARGET_ALIASES` or legacy
-`CCS_CODEX_ALIASES` after creating a matching launcher:
+If a user launches CCS through a custom shim instead of the built-in package bins, target
+resolution falls back to `argv[0]` aliases from `CCS_TARGET_ALIASES` or legacy
+`CCS_CODEX_ALIASES`:
 
 ```bash
 ln -s /path/to/ccs /path/to/mycodex
@@ -757,6 +775,7 @@ ccs --target droid help
 # Test Codex adapter (if installed)
 ccs --target codex
 ccs-codex
+ccsxp
 
 # Test argv[0] detection
 ccs-droid help

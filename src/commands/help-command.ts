@@ -4,6 +4,7 @@ import { initUI, box, color, dim, sectionHeader, subheader } from '../utils/ui';
 import { isUnifiedMode } from '../config/unified-config-loader';
 import { getCcsDir, getCcsDirSource } from '../utils/config-manager';
 import { CLIPROXY_DEFAULT_PORT } from '../cliproxy/config/port-manager';
+import { getOfficialChannelsSupportMessage } from '../channels/official-channels-runtime';
 
 type HelpWriter = (line: string) => void;
 
@@ -407,6 +408,7 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
       ['ccsd <profile> [args]', 'Legacy shortcut for: ccs-droid <profile> [args]'],
       ['ccs-codex <profile> [args]', 'Explicit Codex runtime alias'],
       ['ccsx <profile> [args]', 'Short alias for: ccs-codex <profile> [args]'],
+      ['ccsxp [args]', 'Shortcut for: ccs codex --target codex [args]'],
     ],
     writeLine
   );
@@ -421,7 +423,8 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
       ['ccs --target codex', 'Open a native Codex session with your existing ~/.codex setup'],
       ['ccs-codex', 'Same as above (explicit Codex alias)'],
       ['ccsx', 'Short alias for ccs-codex'],
-      ['ccs codex --target codex', 'Run built-in CLIProxy Codex on native Codex CLI'],
+      ['ccsxp "your prompt"', 'Run built-in CLIProxy Codex on native Codex CLI'],
+      ['ccs codex --target codex', 'Explicit form of ccsxp'],
       [
         'ccs api create codex-api --cliproxy-provider codex',
         'Create a routed API bridge that can also run on Codex',
@@ -446,6 +449,20 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
         'Create CLIProxy variant with Droid as default target',
       ],
       ['ccs glm', 'Run GLM profile on Claude Code (default)'],
+    ],
+    writeLine
+  );
+
+  printSubSection(
+    'Codex + CLIProxy',
+    [
+      ['ccsxp "your prompt"', 'Use the built-in CCS Codex provider shortcut on native Codex'],
+      ['ccs config', 'Open Compatible -> Codex CLI for native Codex setup and diagnostics'],
+      [
+        'Default provider',
+        'Set to cliproxy if plain codex or a personal cxp alias should use CLIProxy',
+      ],
+      ['Model provider auth', 'Save cliproxy with env_key = "CLIPROXY_API_KEY"'],
     ],
     writeLine
   );
@@ -592,8 +609,7 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
       ['ccs config channels --clear-token [channel]', 'Remove one or all saved channel tokens'],
       ['', ''],
       ['', 'Fastest path: turn on the channel, save the token if needed, then run ccs.'],
-      ['Note:', 'Runtime-only. Applies to native Claude default/account sessions only.'],
-      ['', 'Not supported for ccs glm, other API/OAuth profiles, or Droid targets.'],
+      ['Note:', getOfficialChannelsSupportMessage()],
       ['', 'Telegram/Discord tokens live in ~/.claude/channels/<channel>/.env.'],
       ['', 'Current-process TELEGRAM_BOT_TOKEN / DISCORD_BOT_TOKEN also work for that launch.'],
       ['', 'iMessage is macOS-only and requires local OS permissions instead of a bot token.'],

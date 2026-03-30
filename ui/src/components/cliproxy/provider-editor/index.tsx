@@ -297,6 +297,7 @@ export function ProviderEditor({
                     defaultTarget={defaultTarget}
                     data={data}
                     authStatus={authStatus}
+                    supportsModelConfig={Boolean(catalog)}
                   />
                 </TabsContent>
               </div>

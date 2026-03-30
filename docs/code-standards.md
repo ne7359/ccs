@@ -198,16 +198,21 @@ Resolves which adapter to use via `resolveTargetType()`:
 ```
 1. --target <name> flag (highest priority)
    ↓
-2. argv[0] detection (runtime alias pattern):
+2. explicit runtime entrypoint (`CCS_INTERNAL_ENTRY_TARGET`):
+   - ccs-droid / ccsd → droid
+   - ccs-codex / ccsx → codex
+   - ccsxp → codex (provider shortcut)
+   ↓
+3. argv[0] detection (runtime alias pattern / custom alias map):
    - ccs-droid → droid
    - ccsd → droid
    - ccs-codex → codex
    - ccsx → codex
    - ccs → default
    ↓
-3. Profile config: profileConfig.target field
+4. Profile config: profileConfig.target field
    ↓
-4. Fallback: 'claude' (lowest priority)
+5. Fallback: 'claude' (lowest priority)
 ```
 
 ### Registration Pattern

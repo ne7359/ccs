@@ -33,6 +33,16 @@ const EMPTY_MODEL_PROVIDER_DRAFT: CodexModelProviderEntry = {
   supportsWebsockets: false,
 };
 
+const CLIPROXY_CODEX_PROVIDER_PRESET: CodexModelProviderEntry = {
+  name: 'cliproxy',
+  displayName: 'CLIProxy Codex',
+  baseUrl: 'http://127.0.0.1:8317/api/provider/codex',
+  envKey: 'CLIPROXY_API_KEY',
+  wireApi: 'responses',
+  requiresOpenaiAuth: false,
+  supportsWebsockets: false,
+};
+
 interface ModelProviderEditorProps {
   initialDraft: CodexModelProviderEntry;
   isNew: boolean;
@@ -56,6 +66,23 @@ function ModelProviderEditor({
 
   return (
     <>
+      {isNew && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          <p>
+            Quick start: apply the CLIProxy Codex preset here, then set{' '}
+            <strong>Default provider</strong> to <code>cliproxy</code> in Top-level settings.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDraft(CLIPROXY_CODEX_PROVIDER_PRESET)}
+            disabled={disabled}
+          >
+            Use CLIProxy Codex preset
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <Input
           value={draft.name}
@@ -146,6 +173,12 @@ function ModelProviderEditor({
           Save provider
         </Button>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        If you want plain native <code>codex</code> to default to CLIProxy, save a provider named{' '}
+        <code>cliproxy</code> with <code>CLIPROXY_API_KEY</code> here, then pick{' '}
+        <code>cliproxy</code> in the <strong>Default provider</strong> control above.
+      </p>
     </>
   );
 }

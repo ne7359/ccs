@@ -17,6 +17,7 @@ interface ProviderInfoTabProps {
   defaultTarget?: CliTarget;
   data?: SettingsResponse;
   authStatus: AuthStatus;
+  supportsModelConfig?: boolean;
 }
 
 export function ProviderInfoTab({
@@ -25,10 +26,16 @@ export function ProviderInfoTab({
   defaultTarget,
   data,
   authStatus,
+  supportsModelConfig = false,
 }: ProviderInfoTabProps) {
   const resolvedTarget = defaultTarget || 'claude';
   const isDroidTarget = resolvedTarget === 'droid';
   const isCodexProvider = provider === 'codex';
+  const managementPrefix =
+    resolvedTarget === 'claude' ? `ccs ${provider}` : `ccs ${provider} --target claude`;
+  const changeModelCommand = `${managementPrefix} --config`;
+  const addAccountCommand = `${managementPrefix} --auth --add`;
+  const listAccountsCommand = `${managementPrefix} --accounts`;
 
   return (
     <ScrollArea className="h-full">
@@ -92,16 +99,12 @@ export function ProviderInfoTab({
             {isCodexProvider && (
               <>
                 <UsageCommand
+                  label="Run on native Codex (shortcut)"
+                  command={`ccsxp "your prompt"`}
+                />
+                <UsageCommand
                   label="Run on native Codex (--target)"
                   command={`ccs ${provider} --target codex "your prompt"`}
-                />
-                <UsageCommand
-                  label="Codex alias (explicit)"
-                  command={`ccs-codex ${provider} "your prompt"`}
-                />
-                <UsageCommand
-                  label="Codex alias (short)"
-                  command={`ccsx ${provider} "your prompt"`}
                 />
               </>
             )}
@@ -113,9 +116,30 @@ export function ProviderInfoTab({
               label={isDroidTarget ? 'Override to Claude' : 'Run on Droid (--target)'}
               command={`ccs ${provider} --target ${isDroidTarget ? 'claude' : 'droid'} "your prompt"`}
             />
-            <UsageCommand label="Change model" command={`ccs ${provider} --config`} />
-            <UsageCommand label="Add account" command={`ccs ${provider} --add`} />
-            <UsageCommand label="List accounts" command={`ccs ${provider} --accounts`} />
+            {supportsModelConfig && (
+              <UsageCommand
+                label={
+                  resolvedTarget === 'claude' ? 'Change model' : 'Change model (Claude target)'
+                }
+                command={changeModelCommand}
+              />
+            )}
+            <UsageCommand
+              label={resolvedTarget === 'claude' ? 'Add account' : 'Add account (Claude target)'}
+              command={addAccountCommand}
+            />
+            <UsageCommand
+              label={
+                resolvedTarget === 'claude' ? 'List accounts' : 'List accounts (Claude target)'
+              }
+              command={listAccountsCommand}
+            />
+            {resolvedTarget !== 'claude' && (
+              <p className="text-xs text-muted-foreground">
+                Account and model-management flags stay on Claude target. Codex and Droid runtime
+                launches reject those CLIProxy management commands.
+              </p>
+            )}
           </div>
         </div>
       </div>

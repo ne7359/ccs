@@ -22,4 +22,18 @@ describe('support-updates catalog codex routing', () => {
     expect(entry).toBeDefined();
     expect(entry?.routes).toEqual([{ label: 'Codex CLI', path: '/codex' }]);
   });
+
+  it('uses Updates Center naming consistently for the rollout notice', () => {
+    const notice = SUPPORT_NOTICES.find((entry) => entry.id === 'updates-center-launch');
+
+    expect(notice).toBeDefined();
+    expect(notice?.title).toContain('Updates Center');
+    expect(notice?.actions).toContainEqual(
+      expect.objectContaining({
+        id: 'open-updates-page',
+        label: 'Open Updates Center when needed',
+      })
+    );
+    expect(notice?.routes).toContainEqual({ label: 'Updates Center', path: '/updates' });
+  });
 });

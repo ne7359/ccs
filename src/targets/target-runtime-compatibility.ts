@@ -65,7 +65,7 @@ export function evaluateTargetRuntimeCompatibility(
     if (input.cliproxyProvider !== 'codex') {
       return unsupported(
         `Codex CLI only supports CLIProxy provider "codex". This profile routes to "${input.cliproxyProvider || 'unknown'}".`,
-        'Use: ccs codex --target codex, ccs-codex codex, or stay on Claude/Droid for other providers.'
+        'Use: ccsxp, ccs codex --target codex, or stay on Claude/Droid for other providers.'
       );
     }
     return { supported: true };

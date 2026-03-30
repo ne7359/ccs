@@ -241,14 +241,26 @@ function resolveNativeClaudeLaunchArgs(
 }
 
 function shouldPassthroughNativeCodexFlagCommand(args: string[]): boolean {
+  return getNativeCodexPassthroughArgs(args) !== null;
+}
+
+function getNativeCodexPassthroughArgs(args: string[]): string[] | null {
   const targetArgs = stripTargetFlag(args);
-  if (targetArgs.length === 0) {
-    return false;
+  if (resolveTargetType(args) !== 'codex' || targetArgs.length === 0) {
+    return null;
   }
 
-  return (
-    resolveTargetType(args) === 'codex' && CODEX_NATIVE_PASSTHROUGH_FLAGS.has(targetArgs[0] || '')
-  );
+  const firstArg = targetArgs[0] || '';
+  if (CODEX_NATIVE_PASSTHROUGH_FLAGS.has(firstArg)) {
+    return targetArgs;
+  }
+
+  const secondArg = targetArgs[1] || '';
+  if (firstArg === 'codex' && CODEX_NATIVE_PASSTHROUGH_FLAGS.has(secondArg)) {
+    return targetArgs.slice(1);
+  }
+
+  return null;
 }
 
 function execNativeCodexFlagCommand(args: string[]): void {
@@ -265,7 +277,11 @@ function execNativeCodexFlagCommand(args: string[]): void {
     process.exit(1);
   }
 
-  const targetArgs = stripTargetFlag(args);
+  const targetArgs = getNativeCodexPassthroughArgs(args);
+  if (!targetArgs) {
+    console.error(fail('Native Codex passthrough args could not be resolved.'));
+    process.exit(1);
+  }
   const creds: TargetCredentials = {
     profile: 'default',
     baseUrl: '',
