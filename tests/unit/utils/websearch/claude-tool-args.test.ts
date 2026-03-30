@@ -21,4 +21,19 @@ describe('appendThirdPartyWebSearchToolArgs', () => {
       ['smoke', '--disallowedTools=Read,WebSearch']
     );
   });
+
+  it('merges WebSearch into an existing space-separated disallowed tool flag', () => {
+    expect(appendThirdPartyWebSearchToolArgs(['smoke', '--disallowedTools', 'Read'])).toEqual([
+      'smoke',
+      '--disallowedTools',
+      'Read,WebSearch',
+    ]);
+  });
+
+  it('merges WebSearch into an existing equals-form disallowed tool flag', () => {
+    expect(appendThirdPartyWebSearchToolArgs(['smoke', '--disallowedTools=Read'])).toEqual([
+      'smoke',
+      '--disallowedTools=Read,WebSearch',
+    ]);
+  });
 });
