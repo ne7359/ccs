@@ -101,7 +101,7 @@ describe('image-analysis routes', () => {
         enabled: true,
         timeout: 60,
         provider_models: {
-          gemini: 'gemini-2.5-flash',
+          gemini: 'gemini-3-flash-preview',
           ghcp: 'claude-haiku-4.5',
         },
         fallback_backend: 'gemini',
@@ -158,7 +158,7 @@ describe('image-analysis routes', () => {
       expect.arrayContaining([
         expect.objectContaining({
           backendId: 'gemini',
-          model: 'gemini-2.5-flash',
+          model: 'gemini-3-flash-preview',
         }),
         expect.objectContaining({
           backendId: 'ghcp',
@@ -227,7 +227,7 @@ describe('image-analysis routes', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         providerModels: {
-          gemini: 'gemini-2.5-flash',
+          gemini: 'gemini-3-flash-preview',
         },
         fallbackBackend: 'gemini',
         profileBackends: {

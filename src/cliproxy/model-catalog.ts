@@ -59,6 +59,8 @@ export interface ModelEntry {
   thinking?: ThinkingSupport;
   /** Whether model supports 1M extended context window (appends [1m] suffix) */
   extendedContext?: boolean;
+  /** Whether model can read image inputs natively without the Image transformer */
+  nativeImageInput?: boolean;
 }
 
 /**
@@ -86,6 +88,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'claude-opus-4-6-thinking',
         name: 'Claude Opus 4.6 Thinking',
         description: 'Latest flagship, extended thinking',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 1024,
@@ -101,6 +104,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'claude-sonnet-4-6',
         name: 'Claude Sonnet 4.6',
         description: 'Latest Sonnet with thinking budget support',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 1024,
@@ -113,6 +117,15 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'gemini-3.1-pro-preview',
         name: 'Gemini 3.1 Pro',
         description: 'Google latest Gemini Pro model via Antigravity',
+        nativeImageInput: true,
+        thinking: { type: 'levels', levels: ['low', 'high'], dynamicAllowed: true },
+        extendedContext: true,
+      },
+      {
+        id: 'gemini-3-1-flash-preview',
+        name: 'Gemini Flash',
+        description: 'Latest Gemini Flash model via Antigravity',
+        nativeImageInput: true,
         thinking: { type: 'levels', levels: ['low', 'high'], dynamicAllowed: true },
         extendedContext: true,
       },
@@ -128,6 +141,16 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         name: 'Gemini 3.1 Pro',
         tier: 'pro',
         description: 'Latest Gemini Pro model, requires paid Google account',
+        nativeImageInput: true,
+        thinking: { type: 'levels', levels: ['low', 'high'], dynamicAllowed: true },
+        extendedContext: true,
+      },
+      {
+        id: 'gemini-3-flash-preview',
+        name: 'Gemini Flash',
+        tier: 'pro',
+        description: 'Latest Gemini Flash model, requires paid Google account',
+        nativeImageInput: true,
         thinking: { type: 'levels', levels: ['low', 'high'], dynamicAllowed: true },
         extendedContext: true,
       },
@@ -135,6 +158,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'gemini-2.5-pro',
         name: 'Gemini 2.5 Pro',
         description: 'Stable, works with free Google account',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 128,
@@ -264,6 +288,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'kimi-k2.5',
         name: 'Kimi K2.5',
         description: 'Latest multimodal model (262K context)',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 1024,
@@ -300,6 +325,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'claude-opus-4-6',
         name: 'Claude Opus 4.6',
         description: 'Latest flagship model',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 1024,
@@ -313,6 +339,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'claude-sonnet-4-6',
         name: 'Claude Sonnet 4.6',
         description: 'Balanced performance and speed',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 1024,
@@ -326,6 +353,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'claude-opus-4-5-20251101',
         name: 'Claude Opus 4.5',
         description: 'Most capable Claude model',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 1024,
@@ -339,6 +367,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'claude-sonnet-4-5-20250929',
         name: 'Claude Sonnet 4.5',
         description: 'Balanced performance and speed',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 1024,
@@ -352,6 +381,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'claude-sonnet-4-20250514',
         name: 'Claude Sonnet 4',
         description: 'Previous generation Sonnet',
+        nativeImageInput: true,
         thinking: {
           type: 'budget',
           min: 1024,
@@ -365,6 +395,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'claude-haiku-4-5-20251001',
         name: 'Claude Haiku 4.5',
         description: 'Fast and efficient',
+        nativeImageInput: true,
         thinking: { type: 'none' },
       },
     ],
@@ -512,6 +543,14 @@ export function supportsThinking(provider: CLIProxyProvider, modelId: string): b
 export function supportsExtendedContext(provider: CLIProxyProvider, modelId: string): boolean {
   const model = findModel(provider, modelId);
   return model?.extendedContext === true;
+}
+
+/**
+ * Check if a model can read image inputs natively.
+ */
+export function supportsNativeImageInput(provider: CLIProxyProvider, modelId: string): boolean {
+  const model = findModel(provider, modelId);
+  return model?.nativeImageInput === true;
 }
 
 /**

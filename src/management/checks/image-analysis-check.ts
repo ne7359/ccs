@@ -42,7 +42,7 @@ export async function runImageAnalysisCheck(results: HealthCheck): Promise<void>
     results.errors.push({
       name: 'Image Analysis',
       message: 'No provider models configured for image analysis',
-      fix: 'ccs config image-analysis --set-model agy gemini-2.5-flash',
+      fix: 'ccs config image-analysis --set-model agy gemini-3-1-flash-preview',
     });
     console.log(`  ${warn('Providers:')} None configured`);
     return;

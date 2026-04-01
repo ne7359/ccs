@@ -62,7 +62,7 @@ describe('image-analysis-backend-resolver', () => {
     expect(status.supported).toBe(true);
     expect(status.backendId).toBe('gemini');
     expect(status.resolutionSource).toBe('fallback-backend');
-    expect(status.model).toBe('gemini-2.5-flash');
+    expect(status.model).toBe('gemini-3-flash-preview');
   });
 
   it('keeps direct Anthropic settings profiles on native read unless explicitly mapped', () => {
@@ -108,6 +108,29 @@ describe('image-analysis-backend-resolver', () => {
     expect(status.resolutionSource).toBe('profile-backend');
   });
 
+  it('lets explicit profile_backends overrides win over cliproxy provider inference', () => {
+    const config: ImageAnalysisConfig = {
+      ...DEFAULT_IMAGE_ANALYSIS_CONFIG,
+      profile_backends: {
+        glmv: 'ghcp',
+      },
+    };
+
+    const status = resolveImageAnalysisStatus(
+      {
+        profileName: 'glmv',
+        profileType: 'cliproxy',
+        cliproxyProvider: 'gemini',
+      },
+      config
+    );
+
+    expect(status.supported).toBe(true);
+    expect(status.status).toBe('mapped');
+    expect(status.backendId).toBe('ghcp');
+    expect(status.resolutionSource).toBe('profile-backend');
+  });
+
   it('reports hook-missing when the profile should persist a hook but it is absent', () => {
     const status = resolveImageAnalysisStatus(
       {
@@ -127,5 +150,33 @@ describe('image-analysis-backend-resolver', () => {
 
     expect(status.status).toBe('hook-missing');
     expect(status.reason).toContain('Profile hook is missing');
+  });
+
+  it('prefers native image reading when the profile settings opt into it', () => {
+    const status = resolveImageAnalysisStatus(
+      {
+        profileName: 'glmv',
+        profileType: 'settings',
+        settings: {
+          env: {
+            ANTHROPIC_BASE_URL: 'https://api.z.ai/v1',
+            ANTHROPIC_MODEL: 'glm-4.5v',
+            ANTHROPIC_AUTH_TOKEN: 'glm-test-key',
+          },
+          ccs_image: {
+            native_read: true,
+          },
+        },
+      },
+      DEFAULT_IMAGE_ANALYSIS_CONFIG
+    );
+
+    expect(status.backendId).toBeNull();
+    expect(status.resolutionSource).toBe('native-compatible');
+    expect(status.nativeReadPreference).toBe(true);
+    expect(status.profileModel).toBe('glm-4.5v');
+    expect(status.nativeImageCapable).toBe(true);
+    expect(status.shouldPersistHook).toBe(false);
+    expect(status.effectiveRuntimeMode).toBe('native-read');
   });
 });

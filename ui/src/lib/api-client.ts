@@ -126,6 +126,7 @@ export interface ImageAnalysisStatus {
     | 'cliproxy-bridge'
     | 'profile-backend'
     | 'fallback-backend'
+    | 'native-compatible'
     | 'disabled'
     | 'unsupported-profile'
     | 'unresolved'
@@ -146,6 +147,10 @@ export interface ImageAnalysisStatus {
   proxyReason: string | null;
   effectiveRuntimeMode: 'cliproxy-image-analysis' | 'native-read';
   effectiveRuntimeReason: string | null;
+  profileModel: string | null;
+  nativeReadPreference: boolean;
+  nativeImageCapable: boolean | null;
+  nativeImageReason: string | null;
 }
 
 export interface ImageAnalysisSettingsConfig {
@@ -164,6 +169,7 @@ export interface ImageAnalysisDashboardSummary {
   mappedProfileCount: number;
   activeProfileCount: number;
   bypassedProfileCount: number;
+  nativeProfileCount: number;
 }
 
 export interface ImageAnalysisDashboardBackend {
@@ -190,7 +196,18 @@ export interface ImageAnalysisDashboardProfile {
   status: ImageAnalysisStatus['status'];
   effectiveRuntimeMode: ImageAnalysisStatus['effectiveRuntimeMode'];
   effectiveRuntimeReason: string | null;
-  currentTargetMode: 'active' | 'bypassed' | 'fallback' | 'setup' | 'disabled' | 'unresolved';
+  currentTargetMode:
+    | 'active'
+    | 'bypassed'
+    | 'fallback'
+    | 'setup'
+    | 'disabled'
+    | 'native'
+    | 'unresolved';
+  profileModel: string | null;
+  nativeReadPreference: boolean;
+  nativeImageCapable: boolean | null;
+  nativeImageReason: string | null;
 }
 
 export interface ImageAnalysisDashboardCatalog {

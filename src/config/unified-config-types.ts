@@ -773,8 +773,8 @@ export const DEFAULT_IMAGE_ANALYSIS_CONFIG: ImageAnalysisConfig = {
   enabled: true,
   timeout: 60,
   provider_models: {
-    agy: 'gemini-2.5-flash',
-    gemini: 'gemini-2.5-flash',
+    agy: 'gemini-3-1-flash-preview',
+    gemini: 'gemini-3-flash-preview',
     codex: 'gpt-5.1-codex-mini',
     kiro: 'kiro-claude-haiku-4-5',
     ghcp: 'claude-haiku-4.5',

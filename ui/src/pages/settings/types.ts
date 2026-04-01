@@ -161,7 +161,7 @@ export interface OfficialChannelsStatus {
 
 export type SettingsTab =
   | 'websearch'
-  | 'imageanalysis'
+  | 'image'
   | 'channels'
   | 'globalenv'
   | 'proxy'

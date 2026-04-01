@@ -100,9 +100,17 @@ describe('Model Catalog', () => {
       assert.strictEqual(gem3.tier, undefined, 'AGY models should not have paid tier');
     });
 
-    it('has 3 models total', () => {
+    it('includes Gemini Flash via Antigravity', () => {
       const { MODEL_CATALOG } = modelCatalog;
-      assert.strictEqual(MODEL_CATALOG.agy.models.length, 3);
+      const flash = MODEL_CATALOG.agy.models.find((m) => m.id === 'gemini-3-1-flash-preview');
+      assert(flash, 'Should include Gemini Flash');
+      assert.strictEqual(flash.name, 'Gemini Flash');
+      assert.strictEqual(flash.tier, undefined, 'AGY models should not have paid tier');
+    });
+
+    it('has 4 models total', () => {
+      const { MODEL_CATALOG } = modelCatalog;
+      assert.strictEqual(MODEL_CATALOG.agy.models.length, 4);
     });
   });
 
@@ -155,9 +163,17 @@ describe('Model Catalog', () => {
       assert.strictEqual(gem25.tier, undefined);
     });
 
-    it('has 2 models total', () => {
+    it('includes Gemini Flash with pro tier', () => {
       const { MODEL_CATALOG } = modelCatalog;
-      assert.strictEqual(MODEL_CATALOG.gemini.models.length, 2);
+      const flash = MODEL_CATALOG.gemini.models.find((m) => m.id === 'gemini-3-flash-preview');
+      assert(flash, 'Should include Gemini Flash');
+      assert.strictEqual(flash.name, 'Gemini Flash');
+      assert.strictEqual(flash.tier, 'pro');
+    });
+
+    it('has 3 models total', () => {
+      const { MODEL_CATALOG } = modelCatalog;
+      assert.strictEqual(MODEL_CATALOG.gemini.models.length, 3);
     });
   });
 

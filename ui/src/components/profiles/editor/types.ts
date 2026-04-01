@@ -6,6 +6,9 @@ import type { CliTarget, CliproxyBridgeMetadata, ImageAnalysisStatus } from '@/l
 
 export interface Settings {
   env?: Record<string, string>;
+  ccs_image?: {
+    native_read?: boolean;
+  };
 }
 
 export interface SettingsResponse {

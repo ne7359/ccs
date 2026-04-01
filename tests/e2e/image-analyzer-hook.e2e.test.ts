@@ -33,7 +33,7 @@ const CLIPROXY_API_KEY = 'test-api-key-12345';
 
 // Default provider models for testing (matches DEFAULT_IMAGE_ANALYSIS_CONFIG)
 const DEFAULT_PROVIDER_MODELS =
-  'agy:gemini-2.5-flash,gemini:gemini-2.5-flash,codex:gpt-5.1-codex-mini,kiro:kiro-claude-haiku-4-5,ghcp:claude-haiku-4.5,claude:claude-haiku-4-5-20251001';
+  'agy:gemini-3-1-flash-preview,gemini:gemini-3-flash-preview,codex:gpt-5.1-codex-mini,kiro:kiro-claude-haiku-4-5,ghcp:claude-haiku-4.5,claude:claude-haiku-4-5-20251001';
 const DEFAULT_PROVIDER = 'agy'; // Default test provider
 
 // ============================================================================
@@ -626,7 +626,7 @@ describe('Image Analyzer Hook', () => {
           CCS_IMAGE_ANALYSIS_ENABLED: '1',
           CCS_PROFILE_TYPE: 'cliproxy',
           CCS_CURRENT_PROVIDER: 'agy',
-          CCS_IMAGE_ANALYSIS_PROVIDER_MODELS: 'agy:gemini-2.5-flash',
+          CCS_IMAGE_ANALYSIS_PROVIDER_MODELS: 'agy:gemini-3-1-flash-preview',
         }
       );
 
@@ -647,7 +647,7 @@ describe('Image Analyzer Hook', () => {
           }>;
         }>;
       };
-      expect(body.model).toBe('gemini-2.5-flash');
+      expect(body.model).toBe('gemini-3-1-flash-preview');
       expect(body.max_tokens).toBe(4096);
       expect(body.messages).toHaveLength(1);
       expect(body.messages[0].role).toBe('user');
@@ -738,7 +738,8 @@ describe('Image Analyzer Hook', () => {
           CCS_IMAGE_ANALYSIS_ENABLED: '1',
           CCS_PROFILE_TYPE: 'cliproxy',
           CCS_CURRENT_PROVIDER: 'codex',
-          CCS_IMAGE_ANALYSIS_PROVIDER_MODELS: 'codex:gpt-5.1-codex-mini,agy:gemini-2.5-flash',
+          CCS_IMAGE_ANALYSIS_PROVIDER_MODELS:
+            'codex:gpt-5.1-codex-mini,agy:gemini-3-1-flash-preview',
         }
       );
 
@@ -756,7 +757,7 @@ describe('Image Analyzer Hook', () => {
           CCS_IMAGE_ANALYSIS_ENABLED: '1',
           CCS_PROFILE_TYPE: 'cliproxy',
           CCS_CURRENT_PROVIDER: 'unknown-provider',
-          CCS_IMAGE_ANALYSIS_PROVIDER_MODELS: 'agy:gemini-2.5-flash',
+          CCS_IMAGE_ANALYSIS_PROVIDER_MODELS: 'agy:gemini-3-1-flash-preview',
         }
       );
 
@@ -820,7 +821,9 @@ describe('Image Analyzer Hook', () => {
       );
 
       const output = JSON.parse(result.stdout);
-      expect(output.hookSpecificOutput.permissionDecisionReason).toContain('gemini-2.5-flash');
+      expect(output.hookSpecificOutput.permissionDecisionReason).toContain(
+        'gemini-3-1-flash-preview'
+      );
     });
 
     it('should output valid JSON structure on file read error', () => {

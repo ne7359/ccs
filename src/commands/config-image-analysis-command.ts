@@ -140,7 +140,9 @@ function showHelp(): void {
   if (IMAGE_ANALYSIS_PROVIDER_ALIASES.length > 0) {
     console.log(`  ${dim(`Aliases accepted: ${IMAGE_ANALYSIS_PROVIDER_ALIASES.join(', ')}`)}`);
   }
-  console.log(`  ${dim('Default model: gemini-2.5-flash (most providers)')}`);
+  console.log(
+    `  ${dim('Defaults: agy -> gemini-3-1-flash-preview, gemini -> gemini-3-flash-preview')}`
+  );
   console.log('');
 
   console.log(subheader('Examples:'));

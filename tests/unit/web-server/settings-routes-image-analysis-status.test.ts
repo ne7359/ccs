@@ -111,7 +111,7 @@ describe('settings-routes image-analysis status', () => {
     expect(body.imageAnalysisStatus.status).toBe('active');
     expect(body.imageAnalysisStatus.backendId).toBe('gemini');
     expect(body.imageAnalysisStatus.resolutionSource).toBe('fallback-backend');
-    expect(body.imageAnalysisStatus.model).toBe('gemini-2.5-flash');
+    expect(body.imageAnalysisStatus.model).toBe('gemini-3-flash-preview');
     expect(body.imageAnalysisStatus.persistencePath).toContain('glm.settings.json');
     expect(body.imageAnalysisStatus.authReadiness).toBe('missing');
     expect(body.imageAnalysisStatus.effectiveRuntimeMode).toBe('native-read');
@@ -254,5 +254,39 @@ describe('settings-routes image-analysis status', () => {
     expect(body.imageAnalysisStatus.backendId).toBe('ghcp');
     expect(body.imageAnalysisStatus.resolutionSource).toBe('cliproxy-bridge');
     expect(body.imageAnalysisStatus.authReadiness).toBe('missing');
+  });
+
+  it('respects per-profile native image preference stored in settings json', async () => {
+    writeJson(path.join(tempHome, '.ccs', 'glmv.settings.json'), {
+      env: {
+        ANTHROPIC_BASE_URL: 'https://api.z.ai/v1',
+        ANTHROPIC_MODEL: 'glm-4.5v',
+        ANTHROPIC_AUTH_TOKEN: 'glmv-test-key',
+      },
+      ccs_image: {
+        native_read: true,
+      },
+    });
+
+    const response = await fetch(`${baseUrl}/api/settings/glmv/raw`);
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      imageAnalysisStatus: {
+        backendId: string | null;
+        resolutionSource: string;
+        profileModel: string | null;
+        nativeReadPreference: boolean;
+        nativeImageCapable: boolean | null;
+        effectiveRuntimeMode: string;
+      };
+    };
+
+    expect(body.imageAnalysisStatus.backendId).toBeNull();
+    expect(body.imageAnalysisStatus.resolutionSource).toBe('native-compatible');
+    expect(body.imageAnalysisStatus.profileModel).toBe('glm-4.5v');
+    expect(body.imageAnalysisStatus.nativeReadPreference).toBe(true);
+    expect(body.imageAnalysisStatus.nativeImageCapable).toBe(true);
+    expect(body.imageAnalysisStatus.effectiveRuntimeMode).toBe('native-read');
   });
 });

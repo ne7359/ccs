@@ -1,7 +1,8 @@
-import { AlertTriangle, ArrowUpRight, Image as ImageIcon } from 'lucide-react';
+import { ArrowUpRight, Image as ImageIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import type { CliTarget, ImageAnalysisStatus } from '@/lib/api-client';
 
@@ -10,21 +11,9 @@ interface ImageAnalysisStatusSectionProps {
   target?: CliTarget;
   source?: 'saved' | 'editor';
   previewState?: 'saved' | 'preview' | 'refreshing' | 'invalid';
+  nativeReadPreferenceOverride?: boolean;
+  onToggleNativeRead?: (enabled: boolean) => void;
 }
-
-const SOURCE_LABELS: Record<ImageAnalysisStatus['resolutionSource'], string> = {
-  'cliproxy-provider': 'Direct provider route',
-  'cliproxy-variant': 'Variant route',
-  'cliproxy-composite': 'Composite route',
-  'copilot-alias': 'Copilot alias',
-  'cliproxy-bridge': 'Derived from profile route',
-  'profile-backend': 'Explicit profile mapping',
-  'fallback-backend': 'Fallback backend',
-  disabled: 'Disabled globally',
-  'unsupported-profile': 'Unsupported profile type',
-  unresolved: 'No backend mapped',
-  'missing-model': 'Missing model',
-};
 
 const TARGET_LABELS: Record<CliTarget, string> = {
   claude: 'Claude Code',
@@ -32,42 +21,37 @@ const TARGET_LABELS: Record<CliTarget, string> = {
   codex: 'Codex CLI',
 };
 
-function getPreviewBadge(
+function getPreviewLabel(
   source: 'saved' | 'editor',
   previewState: ImageAnalysisStatusSectionProps['previewState']
 ) {
-  if (previewState === 'refreshing') {
-    return { label: 'Refreshing', variant: 'outline' as const };
-  }
-  if (source === 'editor') {
-    return { label: 'Live Preview', variant: 'secondary' as const };
-  }
-  return { label: 'Saved', variant: 'outline' as const };
+  if (previewState === 'refreshing') return 'Refreshing preview';
+  if (previewState === 'invalid') return 'Saved status';
+  return source === 'editor' ? 'Live preview' : 'Saved status';
 }
 
-function getRuntimeBadge(status: ImageAnalysisStatus, target: CliTarget) {
+function getHeaderLabel(status: ImageAnalysisStatus, target: CliTarget): string {
+  if (status.status === 'disabled') return 'Disabled globally';
+  if (target !== 'claude') return `${TARGET_LABELS[target]} bypasses the hook`;
+  if (status.nativeReadPreference) return 'Native image reading';
+  if (status.status === 'hook-missing') return 'Setup needed';
+  if (status.authReadiness === 'missing') return 'Needs auth';
+  if (status.proxyReadiness === 'unavailable') return 'Needs proxy';
+  if (status.effectiveRuntimeMode === 'native-read') return 'Native fallback';
+  return 'Transformer ready';
+}
+
+function getHeaderBadge(
+  status: ImageAnalysisStatus,
+  target: CliTarget
+): {
+  label: string;
+  className: string;
+} {
   if (status.status === 'disabled') {
     return {
       label: 'Disabled',
       className: 'border-border/80 bg-background/85 text-muted-foreground',
-    };
-  }
-  if (status.status === 'hook-missing') {
-    return {
-      label: 'Setup needed',
-      className: 'border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200',
-    };
-  }
-  if (status.authReadiness === 'missing') {
-    return {
-      label: 'Needs auth',
-      className: 'border-rose-500/25 bg-rose-500/10 text-rose-800 dark:text-rose-200',
-    };
-  }
-  if (status.proxyReadiness === 'unavailable') {
-    return {
-      label: 'Needs proxy',
-      className: 'border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200',
     };
   }
   if (target !== 'claude') {
@@ -76,92 +60,73 @@ function getRuntimeBadge(status: ImageAnalysisStatus, target: CliTarget) {
       className: 'border-sky-500/25 bg-sky-500/10 text-sky-800 dark:text-sky-200',
     };
   }
-  if (status.effectiveRuntimeMode === 'native-read') {
+  if (status.nativeReadPreference) {
     return {
-      label: 'Native fallback',
-      className: 'border-border/80 bg-background/85 text-muted-foreground',
+      label: 'Native',
+      className: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
     };
   }
-  if (status.proxyReadiness === 'stopped') {
+  if (status.status === 'hook-missing' || status.authReadiness === 'missing') {
     return {
-      label: 'Starts on launch',
-      className: 'border-sky-500/25 bg-sky-500/10 text-sky-800 dark:text-sky-200',
+      label: status.status === 'hook-missing' ? 'Setup' : 'Auth',
+      className: 'border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200',
+    };
+  }
+  if (status.proxyReadiness === 'unavailable') {
+    return {
+      label: 'Proxy',
+      className: 'border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200',
     };
   }
   return {
-    label: 'CLIProxy active',
+    label: 'Ready',
     className: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
   };
 }
 
-function getStatusContext(
-  source: 'saved' | 'editor',
-  previewState: ImageAnalysisStatusSectionProps['previewState']
-) {
-  if (previewState === 'invalid') {
-    return 'Showing saved status until the JSON above is valid again.';
+function getToggleSummary(status: ImageAnalysisStatus, target: CliTarget): string {
+  if (status.nativeReadPreference) {
+    if (status.profileModel && status.nativeImageCapable) {
+      return `${status.profileModel} looks image-ready. CCS will bypass the transformer here.`;
+    }
+    if (status.profileModel) {
+      return `CCS will prefer native reading for ${status.profileModel}.`;
+    }
+    return 'CCS will prefer native image reading for this profile.';
   }
-  if (previewState === 'refreshing') {
-    return 'Refreshing from the current editor state.';
+
+  if (!status.backendDisplayName && target === 'claude') {
+    return 'This profile currently stays on native file access.';
   }
-  return source === 'editor'
-    ? 'Preview from the current editor JSON.'
-    : 'Saved status for this profile.';
+
+  if (!status.backendDisplayName) {
+    return `Saved Claude-side image routing is inactive while ${TARGET_LABELS[target]} is selected.`;
+  }
+
+  const modelSuffix = status.model ? ` · ${status.model}` : '';
+  return `Transformer route: ${status.backendDisplayName}${modelSuffix}.`;
 }
 
-function getSummary(status: ImageAnalysisStatus, target: CliTarget): string {
-  const backendName = status.backendDisplayName || status.backendId || 'native file access';
+function getExceptionalNote(status: ImageAnalysisStatus, target: CliTarget): string | null {
   if (status.status === 'disabled') {
-    return 'Image Analysis is disabled globally for this profile.';
-  }
-  if (!status.backendId) {
-    return target === 'claude'
-      ? 'This profile currently uses native file access for images and PDFs.'
-      : `Current target ${TARGET_LABELS[target]} bypasses the hook and no saved backend is mapped.`;
+    return 'Image is disabled globally in CCS settings.';
   }
   if (target !== 'claude') {
-    return status.effectiveRuntimeMode === 'native-read'
-      ? `Current target ${TARGET_LABELS[target]} bypasses the hook. Saved Claude-side setup for ${backendName} currently falls back to native file access.`
-      : `Current target ${TARGET_LABELS[target]} bypasses the hook. Saved Claude-side backend: ${backendName}.`;
+    return `Current target ${TARGET_LABELS[target]} bypasses the Claude Read hook.`;
   }
-  if (status.effectiveRuntimeMode === 'native-read') {
-    return `Saved backend: ${backendName}. Current runtime falls back to native file access.`;
-  }
-  return `Saved backend: ${backendName}. Images and PDFs resolve through CLIProxy on this target.`;
-}
-
-function getTargetDetail(status: ImageAnalysisStatus, target: CliTarget): string {
-  if (target !== 'claude') {
-    return 'Current launch path bypasses the Claude Read hook.';
+  if (status.nativeReadPreference) {
+    return status.nativeImageCapable === true ? null : status.nativeImageReason;
   }
   if (status.status === 'hook-missing') {
-    return 'Hook must be persisted before this profile can use Image Analysis.';
+    return 'Persist the profile hook before transformer routing can run here.';
   }
-  if (status.effectiveRuntimeMode === 'native-read') {
-    return status.effectiveRuntimeReason || status.reason || 'Using native file access.';
+  if (status.authReadiness === 'missing') {
+    return status.authReason;
   }
-  if (status.proxyReadiness === 'stopped') {
-    return 'Auth is ready. Local CLIProxy will start on demand.';
+  if (status.proxyReadiness === 'unavailable') {
+    return status.proxyReason;
   }
-  return 'Current target can use the saved backend.';
-}
-
-function getPersistenceValue(status: ImageAnalysisStatus): string {
-  if (!status.shouldPersistHook || !status.persistencePath) {
-    return 'Not required';
-  }
-  return status.hookInstalled ? 'Hook saved' : 'Hook missing';
-}
-
-function getPersistenceDetail(status: ImageAnalysisStatus): string {
-  if (!status.shouldPersistHook || !status.persistencePath) {
-    return 'No profile-level hook persistence required.';
-  }
-  return status.persistencePath;
-}
-
-function getModelValue(status: ImageAnalysisStatus): string {
-  return status.model || status.reason || 'Unavailable';
+  return null;
 }
 
 export function ImageAnalysisStatusSection({
@@ -169,147 +134,88 @@ export function ImageAnalysisStatusSection({
   target = 'claude',
   source = 'saved',
   previewState = 'saved',
+  nativeReadPreferenceOverride,
+  onToggleNativeRead,
 }: ImageAnalysisStatusSectionProps) {
   if (!status) {
     return (
-      <div className="rounded-md border bg-muted/20 p-4" aria-live="polite">
-        <div className="h-4 w-40 animate-pulse rounded bg-muted" />
-        <div className="mt-2 h-3 w-64 animate-pulse rounded bg-muted" />
+      <div className="rounded-2xl border bg-muted/20 px-4 py-3" aria-live="polite">
+        <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+        <div className="mt-2 h-3 w-52 animate-pulse rounded bg-muted" />
       </div>
     );
   }
 
-  const previewBadge = getPreviewBadge(source, previewState);
-  const runtimeBadge = getRuntimeBadge(status, target);
-  const showNotice =
-    status.status === 'hook-missing' ||
-    status.authReadiness === 'missing' ||
-    status.proxyReadiness === 'unavailable';
+  const nativeReadChecked = nativeReadPreferenceOverride ?? status.nativeReadPreference;
+  const effectiveStatus = { ...status, nativeReadPreference: nativeReadChecked };
+  const headerBadge = getHeaderBadge(effectiveStatus, target);
+  const note = getExceptionalNote(effectiveStatus, target);
+  const capabilityLabel = status.nativeImageCapable
+    ? 'Verified'
+    : status.profileModel
+      ? 'Unknown'
+      : null;
 
   return (
-    <section className="rounded-md border bg-muted/20 p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+    <section className="rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <ImageIcon className="h-4 w-4 text-sky-600" />
-            <h3 className="text-sm font-semibold">Image Analysis</h3>
+            <div className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300">
+              <ImageIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-semibold">Image</h3>
+                <Badge className={cn('h-5 border px-1.5 text-[10px]', headerBadge.className)}>
+                  {headerBadge.label}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {getPreviewLabel(source, previewState)} · {getHeaderLabel(effectiveStatus, target)}
+              </p>
+            </div>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {getStatusContext(source, previewState)}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={previewBadge.variant} className="h-5 px-1.5 text-[10px]">
-            {previewBadge.label}
-          </Badge>
-          <Badge className={cn('h-5 border px-1.5 text-[10px]', runtimeBadge.className)}>
-            {runtimeBadge.label}
-          </Badge>
-        </div>
-      </div>
-
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">{getSummary(status, target)}</p>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <div className="rounded-md border bg-background/70 p-3">
-          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Backend
-          </div>
-          <div className="mt-2 text-sm font-medium text-foreground">
-            {status.backendDisplayName || status.backendId || 'Native file access'}
-          </div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {SOURCE_LABELS[status.resolutionSource]}
-          </p>
         </div>
 
-        <div className="rounded-md border bg-background/70 p-3">
-          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Current target
-          </div>
-          <div className="mt-2 text-sm font-medium text-foreground">{TARGET_LABELS[target]}</div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {getTargetDetail(status, target)}
-          </p>
-        </div>
-
-        <div className="rounded-md border bg-background/70 p-3">
-          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Persistence
-          </div>
-          <div className="mt-2 text-sm font-medium text-foreground">
-            {getPersistenceValue(status)}
-          </div>
-          <p
-            className="mt-1 text-xs leading-5 text-muted-foreground"
-            title={status.persistencePath || 'Not required'}
-          >
-            {getPersistenceDetail(status)}
-          </p>
-        </div>
-      </div>
-
-      <dl className="mt-4 grid gap-x-4 gap-y-3 sm:grid-cols-3">
-        <div className="space-y-1">
-          <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Auth
-          </dt>
-          <dd className="text-sm text-foreground">
-            {status.authReadiness === 'ready'
-              ? `${status.authDisplayName || status.authProvider} ready`
-              : status.authReadiness === 'missing'
-                ? status.authReason
-                : status.authReadiness === 'not-needed'
-                  ? 'Not required'
-                  : 'Unknown'}
-          </dd>
-        </div>
-        <div className="space-y-1">
-          <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Proxy
-          </dt>
-          <dd className="text-sm text-foreground">
-            {status.proxyReadiness === 'ready'
-              ? 'Local CLIProxy ready'
-              : status.proxyReadiness === 'remote'
-                ? 'Remote CLIProxy ready'
-                : status.proxyReadiness === 'stopped'
-                  ? 'Local CLIProxy idle'
-                  : status.proxyReadiness === 'not-needed'
-                    ? 'Not required'
-                    : status.proxyReason || 'Unknown'}
-          </dd>
-        </div>
-        <div className="space-y-1">
-          <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Model
-          </dt>
-          <dd className={cn('text-sm text-foreground', status.model && 'font-mono text-xs')}>
-            {getModelValue(status)}
-          </dd>
-        </div>
-      </dl>
-
-      {showNotice && (
-        <div className="mt-4 flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-          <span>
-            {status.effectiveRuntimeReason || status.reason || 'Review the saved configuration.'}
-          </span>
-        </div>
-      )}
-
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
-        <p className="text-xs text-muted-foreground">
-          CRUD and backend routing now live in global Settings.
-        </p>
-        <Button size="sm" variant="outline" asChild>
-          <Link to="/settings?tab=imageanalysis">
+        <Button size="sm" variant="outline" className="h-8 shrink-0" asChild>
+          <Link to="/settings?tab=image">
             Open Settings
             <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
           </Link>
         </Button>
       </div>
+
+      <div className="mt-3 rounded-xl border bg-muted/15 px-3 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-medium text-foreground">Use native image reading</div>
+              {capabilityLabel && (
+                <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                  {capabilityLabel}
+                </Badge>
+              )}
+            </div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {getToggleSummary(effectiveStatus, target)}
+            </p>
+          </div>
+
+          <Switch
+            checked={nativeReadChecked}
+            onCheckedChange={onToggleNativeRead}
+            disabled={!onToggleNativeRead}
+            aria-label="Use native image reading"
+          />
+        </div>
+      </div>
+
+      {note && (
+        <div className="mt-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground">
+          {note}
+        </div>
+      )}
     </section>
   );
 }

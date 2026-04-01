@@ -7,10 +7,12 @@ import {
   isCLIProxyProvider,
   mapExternalProviderName,
 } from '../../cliproxy/provider-capabilities';
+import { getProviderCatalog, supportsNativeImageInput } from '../../cliproxy/model-catalog';
 import { extractProviderFromPathname } from '../../cliproxy/model-id-normalizer';
 import type { CliproxyBridgeMetadata } from '../../api/services/profile-types';
 import type { Settings } from '../../types/config';
 import type { ProfileType } from '../../types/profile';
+import { stripModelConfigurationSuffixes } from '../../shared/extended-context-utils';
 
 export type ImageAnalysisResolutionSource =
   | 'cliproxy-provider'
@@ -20,6 +22,7 @@ export type ImageAnalysisResolutionSource =
   | 'cliproxy-bridge'
   | 'profile-backend'
   | 'fallback-backend'
+  | 'native-compatible'
   | 'disabled'
   | 'unsupported-profile'
   | 'unresolved'
@@ -49,7 +52,7 @@ export interface ImageAnalysisResolutionContext {
   settingsPath?: string | null;
   cliproxyProvider?: string | null;
   isComposite?: boolean;
-  settings?: Pick<Settings, 'env'> | null;
+  settings?: Pick<Settings, 'env' | 'ccs_image'> | null;
   cliproxyBridge?: CliproxyBridgeMetadata | null;
   hookInstalled?: boolean;
   sharedHookInstalled?: boolean;
@@ -79,7 +82,25 @@ export interface ImageAnalysisStatus {
   proxyReason: string | null;
   effectiveRuntimeMode: ImageAnalysisEffectiveRuntimeMode;
   effectiveRuntimeReason: string | null;
+  profileModel: string | null;
+  nativeReadPreference: boolean;
+  nativeImageCapable: boolean | null;
+  nativeImageReason: string | null;
 }
+
+interface NativeImageSupportResolution {
+  profileModel: string | null;
+  nativeReadPreference: boolean;
+  nativeImageCapable: boolean | null;
+  nativeImageReason: string | null;
+}
+
+const PROFILE_MODEL_ENV_KEYS = [
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+] as const;
 
 function resolveProviderFromBaseUrl(baseUrl: unknown): string | null {
   if (typeof baseUrl !== 'string' || baseUrl.trim().length === 0) {
@@ -233,9 +254,102 @@ function getRuntimePath(backendId: string | null): string | null {
   return `/api/provider/${backendId}`;
 }
 
-function resolveBackend(
+function resolveNativeImageProvider(
+  context: ImageAnalysisResolutionContext,
+  knownBackends: string[]
+): string | null {
+  return normalizeImageAnalysisBackendId(
+    context.cliproxyProvider ??
+      context.cliproxyBridge?.provider ??
+      resolveProviderFromBaseUrl(context.settings?.env?.ANTHROPIC_BASE_URL ?? undefined),
+    knownBackends
+  );
+}
+
+function resolveProfileModel(
+  context: ImageAnalysisResolutionContext,
+  provider: string | null
+): string | null {
+  const env = context.settings?.env;
+  if (env && typeof env === 'object') {
+    for (const key of PROFILE_MODEL_ENV_KEYS) {
+      const value = env[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+  }
+
+  if (provider && isCLIProxyProvider(provider)) {
+    return getProviderCatalog(provider)?.defaultModel ?? null;
+  }
+
+  return null;
+}
+
+function verifyNativeImageCapability(
+  provider: string | null,
+  modelId: string | null
+): boolean | null {
+  if (!modelId) {
+    return null;
+  }
+
+  if (provider && isCLIProxyProvider(provider) && supportsNativeImageInput(provider, modelId)) {
+    return true;
+  }
+
+  const normalizedModel = stripModelConfigurationSuffixes(modelId).trim().toLowerCase();
+  if (!normalizedModel) {
+    return null;
+  }
+
+  if (
+    normalizedModel.startsWith('gemini-') ||
+    normalizedModel.startsWith('claude-') ||
+    normalizedModel.startsWith('gpt-4o') ||
+    normalizedModel.includes('vision') ||
+    normalizedModel.includes('multimodal') ||
+    /(^|[-_.])vl([-. _]|$)/.test(normalizedModel) ||
+    /^glm-[\d.]+v([-. _]|$)/.test(normalizedModel)
+  ) {
+    return true;
+  }
+
+  return null;
+}
+
+function resolveNativeImageSupport(
   context: ImageAnalysisResolutionContext,
   config: ImageAnalysisConfig
+): NativeImageSupportResolution {
+  const knownBackends = Object.keys(config.provider_models);
+  const provider = resolveNativeImageProvider(context, knownBackends);
+  const profileModel = resolveProfileModel(context, provider);
+  const nativeReadPreference = context.settings?.ccs_image?.native_read === true;
+  const nativeImageCapable = verifyNativeImageCapability(provider, profileModel);
+
+  let nativeImageReason: string | null = null;
+  if (!profileModel) {
+    nativeImageReason = 'No current model is configured for this profile yet.';
+  } else if (nativeImageCapable) {
+    nativeImageReason = `${profileModel} can read images natively.`;
+  } else {
+    nativeImageReason = `CCS cannot verify native image support for ${profileModel} yet.`;
+  }
+
+  return {
+    profileModel,
+    nativeReadPreference,
+    nativeImageCapable,
+    nativeImageReason,
+  };
+}
+
+function resolveBackend(
+  context: ImageAnalysisResolutionContext,
+  config: ImageAnalysisConfig,
+  nativeSupport: NativeImageSupportResolution
 ): Pick<ImageAnalysisStatus, 'backendId' | 'backendDisplayName' | 'resolutionSource' | 'reason'> {
   const { profileName, profileType, cliproxyProvider, isComposite, cliproxyBridge, settings } =
     context;
@@ -255,6 +369,30 @@ function resolveBackend(
       backendDisplayName: null,
       resolutionSource: 'unsupported-profile',
       reason: 'This profile type is not currently covered by image-analysis runtime.',
+    };
+  }
+
+  if (nativeSupport.nativeReadPreference) {
+    return {
+      backendId: null,
+      backendDisplayName: null,
+      resolutionSource: 'native-compatible',
+      reason:
+        nativeSupport.nativeImageCapable === true
+          ? 'This profile is set to use native image reading.'
+          : `${nativeSupport.nativeImageReason ?? 'Native image reading is enabled for this profile.'} CCS will bypass the transformer for this profile.`,
+    };
+  }
+
+  // Explicit profile mappings are the only user-authored override and must
+  // win before provider/bridge inference.
+  const mappedBackend = resolveConfiguredProfileBackend(profileName, config);
+  if (mappedBackend) {
+    return {
+      backendId: mappedBackend,
+      backendDisplayName: getBackendDisplayName(mappedBackend),
+      resolutionSource: 'profile-backend',
+      reason: null,
     };
   }
 
@@ -300,16 +438,6 @@ function resolveBackend(
     };
   }
 
-  const mappedBackend = resolveConfiguredProfileBackend(profileName, config);
-  if (mappedBackend) {
-    return {
-      backendId: mappedBackend,
-      backendDisplayName: getBackendDisplayName(mappedBackend),
-      resolutionSource: 'profile-backend',
-      reason: null,
-    };
-  }
-
   const hasDirectAnthropicApiKey = Boolean(settings?.env?.ANTHROPIC_API_KEY?.trim());
   const hasBaseUrl = Boolean(settings?.env?.ANTHROPIC_BASE_URL?.trim());
   if (hasDirectAnthropicApiKey && !hasBaseUrl) {
@@ -347,7 +475,8 @@ export function resolveImageAnalysisStatus(
   rawConfig: ImageAnalysisConfig = DEFAULT_IMAGE_ANALYSIS_CONFIG
 ): ImageAnalysisStatus {
   const config = canonicalizeImageAnalysisConfig(rawConfig);
-  const resolution = resolveBackend(context, config);
+  const nativeSupport = resolveNativeImageSupport(context, config);
+  const resolution = resolveBackend(context, config, nativeSupport);
   const model = resolution.backendId
     ? (config.provider_models[resolution.backendId] ?? null)
     : null;
@@ -444,5 +573,9 @@ export function resolveImageAnalysisStatus(
       status === 'hook-missing' || !config.enabled || !resolution.backendId || !model
         ? reason
         : null,
+    profileModel: nativeSupport.profileModel,
+    nativeReadPreference: nativeSupport.nativeReadPreference,
+    nativeImageCapable: nativeSupport.nativeImageCapable,
+    nativeImageReason: nativeSupport.nativeImageReason,
   };
 }

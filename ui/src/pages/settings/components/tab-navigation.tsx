@@ -26,7 +26,7 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
   const { t } = useTranslation();
   const tabs = [
     { value: 'websearch' as const, label: t('settingsTabs.web'), icon: Globe },
-    { value: 'imageanalysis' as const, label: 'Image Analysis', icon: ImageIcon },
+    { value: 'image' as const, label: 'Image', icon: ImageIcon },
     { value: 'channels' as const, label: 'Channels', icon: MessageSquare },
     { value: 'globalenv' as const, label: t('settingsTabs.env'), icon: Settings2 },
     { value: 'thinking' as const, label: t('settingsTabs.think'), icon: Brain },
@@ -39,7 +39,7 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
     <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as SettingsTab)}>
       <TabsList className="grid w-full grid-cols-8">
         {tabs.map(({ value, label, icon: Icon }) => (
-          <TabsTrigger key={value} value={value} className="gap-1.5 px-1 text-xs">
+          <TabsTrigger key={value} value={value} className="gap-1.5 px-2 text-xs">
             <Icon className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">{label}</span>
           </TabsTrigger>

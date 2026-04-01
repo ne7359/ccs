@@ -38,7 +38,7 @@ function createStatus(overrides: Partial<ImageAnalysisStatus> = {}): ImageAnalys
     status: 'active',
     backendId: 'gemini',
     backendDisplayName: 'Google Gemini',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     resolutionSource: 'cliproxy-bridge',
     reason: null,
     shouldPersistHook: true,
@@ -56,6 +56,10 @@ function createStatus(overrides: Partial<ImageAnalysisStatus> = {}): ImageAnalys
     proxyReason: 'Local CLIProxy service is reachable.',
     effectiveRuntimeMode: 'cliproxy-image-analysis',
     effectiveRuntimeReason: null,
+    profileModel: 'gemini-3-flash-preview',
+    nativeReadPreference: false,
+    nativeImageCapable: true,
+    nativeImageReason: 'gemini-3-flash-preview can read images natively.',
     ...overrides,
   };
 }
@@ -80,18 +84,16 @@ describe('ImageAnalysisStatusSection', () => {
   it('renders a compact saved summary with a settings link', () => {
     render(<ImageAnalysisStatusSection status={createStatus()} />);
 
-    expect(screen.getByText('Image Analysis')).toBeInTheDocument();
-    expect(screen.getByText('Saved')).toBeInTheDocument();
-    expect(screen.getByText('CLIProxy active')).toBeInTheDocument();
+    expect(screen.getByText('Image')).toBeInTheDocument();
+    expect(screen.getByText(/Saved status · Transformer ready/i)).toBeInTheDocument();
+    expect(screen.getByText('Ready')).toBeInTheDocument();
+    expect(screen.getByText('Use native image reading')).toBeInTheDocument();
     expect(
-      screen.getByText(/Saved backend: Google Gemini\. Images and PDFs resolve through CLIProxy/i)
+      screen.getByText(/Transformer route: Google Gemini · gemini-3-flash-preview\./i)
     ).toBeInTheDocument();
-    expect(screen.getByText('Backend')).toBeInTheDocument();
-    expect(screen.getByText('Current target')).toBeInTheDocument();
-    expect(screen.getByText('Persistence')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open Settings/i })).toHaveAttribute(
       'href',
-      '/settings?tab=imageanalysis'
+      '/settings?tab=image'
     );
   });
 
@@ -99,12 +101,12 @@ describe('ImageAnalysisStatusSection', () => {
     render(<ImageAnalysisStatusSection status={createStatus()} target="codex" />);
 
     expect(screen.getByText('Bypassed')).toBeInTheDocument();
+    expect(screen.getByText(/Saved status · Codex CLI bypasses the hook/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/Current target Codex CLI bypasses the hook\. Saved Claude-side backend/i)
+      screen.getByText(/Transformer route: Google Gemini · gemini-3-flash-preview\./i)
     ).toBeInTheDocument();
-    expect(screen.getByText('Codex CLI')).toBeInTheDocument();
     expect(
-      screen.getByText(/Current launch path bypasses the Claude Read hook/i)
+      screen.getByText(/Current target Codex CLI bypasses the Claude Read hook/i)
     ).toBeInTheDocument();
   });
 
@@ -114,6 +116,8 @@ describe('ImageAnalysisStatusSection', () => {
         status={createStatus({
           backendId: 'ghcp',
           backendDisplayName: 'GitHub Copilot (OAuth)',
+          model: 'claude-haiku-4.5',
+          profileModel: 'claude-haiku-4.5',
           authReadiness: 'missing',
           authProvider: 'ghcp',
           authDisplayName: 'GitHub Copilot (OAuth)',
@@ -126,13 +130,92 @@ describe('ImageAnalysisStatusSection', () => {
       />
     );
 
-    expect(screen.getByText('Needs auth')).toBeInTheDocument();
+    expect(screen.getByText('Auth')).toBeInTheDocument();
     expect(
-      screen.getByText(/Saved backend: GitHub Copilot \(OAuth\)\. Current runtime falls back/i)
+      screen.getByText(/Transformer route: GitHub Copilot \(OAuth\) · claude-haiku-4.5\./i)
     ).toBeInTheDocument();
     expect(
       screen.getAllByText(/Run "ccs ghcp --auth" to enable image analysis/i).length
     ).toBeGreaterThanOrEqual(1);
+  });
+
+  it('calls the toggle handler immediately for native image reading', () => {
+    const onToggleNativeRead = vi.fn();
+
+    render(
+      <ImageAnalysisStatusSection status={createStatus()} onToggleNativeRead={onToggleNativeRead} />
+    );
+
+    fireEvent.click(screen.getByRole('switch', { name: /Use native image reading/i }));
+
+    expect(onToggleNativeRead).toHaveBeenCalledWith(true);
+  });
+
+  it('writes the native image preference into the raw settings json', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/api/settings/glm/raw')) {
+          return Promise.resolve(
+            createJsonResponse({
+              profile: 'glm',
+              settings: {
+                env: {
+                  ANTHROPIC_BASE_URL: 'https://api.z.ai/v1',
+                  ANTHROPIC_AUTH_TOKEN: 'saved-token',
+                },
+              },
+              mtime: 1,
+              path: '/tmp/glm.settings.json',
+              imageAnalysisStatus: createStatus(),
+            })
+          );
+        }
+
+        if (url.includes('/api/settings/glm/image-analysis-status')) {
+          return Promise.resolve(
+            createJsonResponse({
+              imageAnalysisStatus: createStatus({
+                backendId: null,
+                backendDisplayName: null,
+                model: null,
+                resolutionSource: 'native-compatible',
+                supported: false,
+                shouldPersistHook: false,
+                runtimePath: null,
+                authReadiness: 'not-needed',
+                authProvider: null,
+                authDisplayName: null,
+                authReason: null,
+                proxyReadiness: 'not-needed',
+                proxyReason: null,
+                effectiveRuntimeMode: 'native-read',
+                nativeReadPreference: true,
+              }),
+            })
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+      })
+    );
+
+    render(<ProfileEditor profileName="glm" profileTarget="claude" />);
+
+    await screen.findByText(/Transformer route: Google Gemini/i);
+
+    fireEvent.click(screen.getByRole('switch', { name: /Use native image reading/i }));
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('raw config editor') as HTMLTextAreaElement).value).toContain(
+        '"ccs_image"'
+      );
+    });
+    expect((screen.getByLabelText('raw config editor') as HTMLTextAreaElement).value).toContain(
+      '"native_read": true'
+    );
   });
 
   it('switches to live preview when editor JSON changes', async () => {
@@ -179,7 +262,7 @@ describe('ImageAnalysisStatusSection', () => {
 
     render(<ProfileEditor profileName="glm" profileTarget="claude" />);
 
-    expect(await screen.findByText('Google Gemini')).toBeInTheDocument();
+    expect(await screen.findByText(/Google Gemini/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('raw config editor'), {
       target: {
@@ -197,10 +280,9 @@ describe('ImageAnalysisStatusSection', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Live Preview')).toBeInTheDocument();
+      expect(screen.getByText(/Live preview/i)).toBeInTheDocument();
     });
-    expect(screen.getByText('GitHub Copilot (OAuth)')).toBeInTheDocument();
-    expect(screen.getByText(/Preview from the current editor JSON/i)).toBeInTheDocument();
+    expect(screen.getByText(/GitHub Copilot \(OAuth\)/i)).toBeInTheDocument();
   });
 
   it('falls back to saved status messaging when the editor JSON is invalid', async () => {
@@ -232,16 +314,14 @@ describe('ImageAnalysisStatusSection', () => {
 
     render(<ProfileEditor profileName="glm" profileTarget="claude" />);
 
-    expect(await screen.findByText('Google Gemini')).toBeInTheDocument();
+    expect(await screen.findByText(/Google Gemini/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('raw config editor'), {
       target: { value: '{' },
     });
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/Showing saved status until the JSON above is valid again/i)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Saved status/i)).toBeInTheDocument();
     });
   });
 
@@ -303,7 +383,7 @@ describe('ImageAnalysisStatusSection', () => {
 
     render(<ProfileEditor profileName="glm" profileTarget="claude" />);
 
-    expect(await screen.findByText('Google Gemini')).toBeInTheDocument();
+    expect(await screen.findByText(/Google Gemini/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('raw config editor'), {
       target: {
@@ -320,7 +400,7 @@ describe('ImageAnalysisStatusSection', () => {
       },
     });
 
-    expect(await screen.findByText('GitHub Copilot (OAuth)')).toBeInTheDocument();
+    expect(await screen.findByText(/GitHub Copilot \(OAuth\)/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('raw config editor'), {
       target: {
@@ -338,9 +418,8 @@ describe('ImageAnalysisStatusSection', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Refreshing')).toBeInTheDocument();
+      expect(screen.getByText(/Refreshing preview/i)).toBeInTheDocument();
     });
-    expect(screen.getByText(/Refreshing from the current editor state/i)).toBeInTheDocument();
 
     secondPreviewResolver?.(
       createJsonResponse({
@@ -356,7 +435,7 @@ describe('ImageAnalysisStatusSection', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Codex')).toBeInTheDocument();
+      expect(screen.getByText(/Codex/i)).toBeInTheDocument();
     });
   });
 });

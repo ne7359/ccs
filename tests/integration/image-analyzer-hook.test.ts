@@ -58,7 +58,8 @@ function invokeHook(env: Record<string, string> = {}): Promise<HookResult> {
         CCS_IMAGE_ANALYSIS_ENABLED: '1',
         CCS_PROFILE_TYPE: 'cliproxy',
         CCS_CURRENT_PROVIDER: 'codex',
-        CCS_IMAGE_ANALYSIS_PROVIDER_MODELS: 'codex:gpt-5.1-codex-mini,agy:gemini-2.5-flash',
+        CCS_IMAGE_ANALYSIS_PROVIDER_MODELS:
+          'codex:gpt-5.1-codex-mini,agy:gemini-3-1-flash-preview',
         ...env,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -195,7 +196,7 @@ describe('image analyzer hook regression coverage', () => {
   it('skips analysis before contacting CLIProxy when the current provider has no mapped vision model', async () => {
     const result = await invokeHook({
       CCS_CURRENT_PROVIDER: 'unknown-provider',
-      CCS_IMAGE_ANALYSIS_PROVIDER_MODELS: 'agy:gemini-2.5-flash',
+      CCS_IMAGE_ANALYSIS_PROVIDER_MODELS: 'agy:gemini-3-1-flash-preview',
     });
 
     expect(result.code).toBe(0);

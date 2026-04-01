@@ -27,6 +27,10 @@ function createStatus(overrides: Partial<ImageAnalysisStatus> = {}): ImageAnalys
     proxyReason: 'CLIProxy runtime readiness has not been verified yet.',
     effectiveRuntimeMode: 'native-read',
     effectiveRuntimeReason: null,
+    profileModel: 'claude-haiku-4.5',
+    nativeReadPreference: false,
+    nativeImageCapable: true,
+    nativeImageReason: 'claude-haiku-4.5 can read images natively.',
     ...overrides,
   };
 }

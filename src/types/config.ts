@@ -75,6 +75,10 @@ export interface ModelPreset {
   haiku: string;
 }
 
+export interface CcsImageSettings {
+  native_read?: boolean;
+}
+
 /**
  * Claude CLI settings.json structure
  * Located at: ~/.claude/settings.json or profile-specific
@@ -83,6 +87,8 @@ export interface Settings {
   env?: EnvVars;
   /** Saved model presets for this provider */
   presets?: ModelPreset[];
+  /** CCS-only per-profile Image preferences */
+  ccs_image?: CcsImageSettings;
   [key: string]: unknown; // Allow other settings
 }
 

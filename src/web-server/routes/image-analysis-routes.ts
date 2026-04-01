@@ -27,7 +27,14 @@ const IMAGE_ANALYSIS_LOCAL_ACCESS_ERROR =
 type DashboardTarget = 'claude' | 'droid' | 'codex';
 type DashboardSummaryState = 'ready' | 'partial' | 'needs_setup' | 'disabled';
 type BackendState = 'ready' | 'starts_on_launch' | 'needs_auth' | 'needs_proxy' | 'review';
-type CurrentTargetMode = 'active' | 'bypassed' | 'fallback' | 'setup' | 'disabled' | 'unresolved';
+type CurrentTargetMode =
+  | 'active'
+  | 'bypassed'
+  | 'fallback'
+  | 'setup'
+  | 'disabled'
+  | 'native'
+  | 'unresolved';
 
 interface ImageAnalysisRouteBody {
   enabled?: boolean;
@@ -74,8 +81,9 @@ function resolveCurrentTargetMode(
   status: Awaited<ReturnType<typeof resolveImageAnalysisRuntimeStatus>>
 ): CurrentTargetMode {
   if (!status.enabled) return 'disabled';
-  if (!status.backendId) return 'unresolved';
   if (target !== 'claude') return 'bypassed';
+  if (status.nativeReadPreference) return 'native';
+  if (!status.backendId) return 'unresolved';
   if (status.status === 'hook-missing') return 'setup';
   if (status.effectiveRuntimeMode === 'native-read') return 'fallback';
   return 'active';
@@ -140,6 +148,10 @@ async function buildDashboardPayload() {
         effectiveRuntimeMode: status.effectiveRuntimeMode,
         effectiveRuntimeReason: status.effectiveRuntimeReason,
         currentTargetMode: resolveCurrentTargetMode(resolveTarget(profile.target), status),
+        profileModel: status.profileModel,
+        nativeReadPreference: status.nativeReadPreference,
+        nativeImageCapable: status.nativeImageCapable,
+        nativeImageReason: status.nativeImageReason,
       };
     })
   );
@@ -180,6 +192,10 @@ async function buildDashboardPayload() {
         effectiveRuntimeMode: status.effectiveRuntimeMode,
         effectiveRuntimeReason: status.effectiveRuntimeReason,
         currentTargetMode: resolveCurrentTargetMode(resolveTarget(variant.target), status),
+        profileModel: status.profileModel,
+        nativeReadPreference: status.nativeReadPreference,
+        nativeImageCapable: status.nativeImageCapable,
+        nativeImageReason: status.nativeImageReason,
       };
     })
   );
@@ -212,7 +228,9 @@ async function buildDashboardPayload() {
           authReason: status.authReason,
           proxyReadiness: status.proxyReadiness,
           proxyReason: status.proxyReason,
-          profilesUsing: allProfileRows.filter((profile) => profile.backendId === backendId).length,
+          profilesUsing: allProfileRows.filter(
+            (profile) => profile.backendId === backendId && !profile.nativeReadPreference
+          ).length,
         };
       })
   );
@@ -226,23 +244,27 @@ async function buildDashboardPayload() {
   const mappedProfileCount = allProfileRows.filter(
     (row) => row.resolutionSource === 'profile-backend'
   ).length;
+  const nativeProfileCount = allProfileRows.filter((row) => row.nativeReadPreference).length;
   const blockerCount = backendRows.filter(
     (row) => row.state === 'needs_auth' || row.state === 'needs_proxy' || row.state === 'review'
   ).length;
 
   let summaryState: DashboardSummaryState = 'ready';
   let title = 'Ready';
-  let detail = `${activeProfileCount} profile${activeProfileCount === 1 ? '' : 's'} can use Image Analysis on the current Claude target path.`;
+  let detail = `${activeProfileCount} profile${activeProfileCount === 1 ? '' : 's'} route through Image on the current Claude target path.`;
+
+  if (nativeProfileCount > 0) {
+    detail += ` ${nativeProfileCount} prefer native image reading.`;
+  }
 
   if (!config.enabled) {
     summaryState = 'disabled';
     title = 'Disabled';
-    detail =
-      'Image Analysis is turned off globally. Images and PDFs fall back to native file access.';
+    detail = 'Image is turned off globally. Images and PDFs fall back to native file access.';
   } else if (backendRows.length === 0) {
     summaryState = 'needs_setup';
     title = 'Needs provider models';
-    detail = 'Add at least one provider model before turning Image Analysis on for profiles.';
+    detail = 'Add at least one provider model before turning Image on for profiles.';
   } else if (blockerCount > 0) {
     summaryState = activeProfileCount > 0 ? 'partial' : 'needs_setup';
     title = activeProfileCount > 0 ? 'Partially ready' : 'Needs setup';
@@ -265,6 +287,7 @@ async function buildDashboardPayload() {
       mappedProfileCount,
       activeProfileCount,
       bypassedProfileCount,
+      nativeProfileCount,
     },
     backends: backendRows,
     profiles: allProfileRows,

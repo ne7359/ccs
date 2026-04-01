@@ -67,6 +67,31 @@ export function ProfileEditor({
     setRawJsonEdits(value);
   }, []);
 
+  const updateNativeImageRead = useCallback(
+    (enabled: boolean) => {
+      const nextSettings = { ...(currentSettings ?? {}) } as Settings;
+      const currentCcsImage =
+        nextSettings.ccs_image && typeof nextSettings.ccs_image === 'object'
+          ? { ...nextSettings.ccs_image }
+          : {};
+
+      if (enabled) {
+        currentCcsImage.native_read = true;
+      } else {
+        delete currentCcsImage.native_read;
+      }
+
+      if (Object.keys(currentCcsImage).length > 0) {
+        nextSettings.ccs_image = currentCcsImage;
+      } else {
+        delete nextSettings.ccs_image;
+      }
+
+      setRawJsonEdits(JSON.stringify(nextSettings, null, 2));
+    },
+    [currentSettings]
+  );
+
   // Sync Visual Editor changes to Raw JSON
   const updateEnvValue = (key: string, value: string) => {
     const newEnv = { ...(currentSettings?.env || {}), [key]: value };
@@ -165,6 +190,7 @@ export function ProfileEditor({
             (!previewStatusResponse?.imageAnalysisStatus || isPreviewStatusPlaceholderData)
           ? 'refreshing'
           : 'preview';
+  const nativeReadPreferenceOverride = currentSettings?.ccs_image?.native_read === true;
 
   // Check for missing required fields (informational warning)
   const missingRequiredFields = useMemo(() => {
@@ -318,6 +344,8 @@ export function ProfileEditor({
               imageAnalysisStatus={imageAnalysisStatus}
               imageAnalysisStatusSource={imageAnalysisStatusSource}
               imageAnalysisStatusPreviewState={imageAnalysisStatusPreviewState}
+              nativeReadPreferenceOverride={nativeReadPreferenceOverride}
+              onToggleNativeRead={updateNativeImageRead}
               onChange={handleRawJsonChange}
               missingRequiredFields={missingRequiredFields}
             />

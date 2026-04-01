@@ -9,6 +9,7 @@
  * - WebSearch and ImageAnalysis hook integration
  */
 
+import * as fs from 'fs';
 import {
   getEffectiveEnvVars,
   getRemoteEnvVars,
@@ -29,6 +30,7 @@ import { ToolSanitizationProxy } from '../tool-sanitization-proxy';
 import { HttpsTunnelProxy } from '../https-tunnel-proxy';
 import { MODEL_ENV_VAR_KEYS, normalizeModelIdForProvider } from '../model-id-normalizer';
 import type { ProxyTarget } from '../proxy-target-resolver';
+import { isSettings, type Settings } from '../../types/config';
 
 export interface RemoteProxyConfig {
   host: string;
@@ -129,17 +131,36 @@ function normalizeCodexEnvForDirectUpstream(envVars: NodeJS.ProcessEnv): NodeJS.
   return nextEnv ?? envVars;
 }
 
+function loadImageAnalysisSettings(settingsPath?: string): Settings | undefined {
+  if (!settingsPath) {
+    return undefined;
+  }
+
+  try {
+    if (!fs.existsSync(settingsPath)) {
+      return undefined;
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as unknown;
+    return isSettings(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function resolveCliproxyImageAnalysisEnv(
   options: ResolveCliproxyImageAnalysisEnvOptions,
   deps: Partial<CliproxyImageAnalysisDeps> = {}
 ): Promise<CliproxyImageAnalysisResolution> {
   const resolvedDeps = { ...defaultCliproxyImageAnalysisDeps, ...deps };
+  const settings = loadImageAnalysisSettings(options.profileSettingsPath);
   const context = {
     profileName: options.profileName,
     profileType: 'cliproxy' as const,
     cliproxyProvider: options.provider,
     isComposite: options.isComposite,
     settingsPath: options.profileSettingsPath,
+    settings,
     hookInstalled: resolvedDeps.hasImageAnalysisProfileHook(
       options.profileName,
       options.profileSettingsPath

@@ -49,13 +49,13 @@ image_analysis:
   enabled: true
   timeout: 60
   provider_models:
-    agy: gemini-2.5-flash
+    agy: gemini-3-1-flash-preview
 `);
 
       const content = fs.readFileSync(path.join(testDir, 'config.yaml'), 'utf8');
       expect(content).toContain('enabled: true');
       expect(content).toContain('timeout: 60');
-      expect(content).toContain('agy: gemini-2.5-flash');
+      expect(content).toContain('agy: gemini-3-1-flash-preview');
     });
 
     it('should parse disabled status from config.yaml', () => {
@@ -79,14 +79,14 @@ image_analysis:
   enabled: true
   timeout: 60
   provider_models:
-    agy: gemini-2.5-flash
+    agy: gemini-3-1-flash-preview
     gemini: gemini-2.5-pro
     codex: gpt-5.1-codex-mini
     kiro: kiro-claude-haiku-4-5
 `);
 
       const content = fs.readFileSync(path.join(testDir, 'config.yaml'), 'utf8');
-      expect(content).toContain('agy: gemini-2.5-flash');
+      expect(content).toContain('agy: gemini-3-1-flash-preview');
       expect(content).toContain('gemini: gemini-2.5-pro');
       expect(content).toContain('codex: gpt-5.1-codex-mini');
       expect(content).toContain('kiro: kiro-claude-haiku-4-5');
@@ -218,8 +218,8 @@ image_analysis:
         enabled: true,
         timeout: 60,
         provider_models: {
-          agy: 'gemini-2.5-flash',
-          gemini: 'gemini-2.5-flash',
+          agy: 'gemini-3-1-flash-preview',
+          gemini: 'gemini-3-flash-preview',
           codex: 'gpt-5.1-codex-mini',
           kiro: 'kiro-claude-haiku-4-5',
           ghcp: 'claude-haiku-4.5',
@@ -244,7 +244,7 @@ image_analysis:
   enabled: true
   timeout: 60
   provider_models:
-    agy: gemini-2.5-flash
+    agy: gemini-3-1-flash-preview
 `);
 
       const content = fs.readFileSync(path.join(testDir, 'config.yaml'), 'utf8');

@@ -132,7 +132,7 @@ function SettingsPageInner() {
         <SectionErrorBoundary>
           <Suspense fallback={<SectionSkeleton />}>
             {activeTab === 'websearch' && <WebSearchSection />}
-            {activeTab === 'imageanalysis' && <ImageAnalysisSection />}
+            {activeTab === 'image' && <ImageAnalysisSection />}
             {activeTab === 'channels' && <ChannelsSection />}
             {activeTab === 'globalenv' && <GlobalEnvSection />}
             {activeTab === 'thinking' && <ThinkingSection />}
@@ -146,7 +146,7 @@ function SettingsPageInner() {
       {/* Desktop View - Side-by-side panels */}
       <PanelGroup direction="horizontal" className="h-full hidden md:flex">
         {/* Left Panel - Settings Controls */}
-        <Panel defaultSize={40} minSize={30} maxSize={55}>
+        <Panel defaultSize={46} minSize={36} maxSize={62}>
           <div className="h-full border-r flex flex-col bg-muted/30 relative">
             {/* Header with Tabs */}
             <div className="p-5 border-b bg-background">
@@ -157,7 +157,7 @@ function SettingsPageInner() {
             <SectionErrorBoundary>
               <Suspense fallback={<SectionSkeleton />}>
                 {activeTab === 'websearch' && <WebSearchSection />}
-                {activeTab === 'imageanalysis' && <ImageAnalysisSection />}
+                {activeTab === 'image' && <ImageAnalysisSection />}
                 {activeTab === 'channels' && <ChannelsSection />}
                 {activeTab === 'globalenv' && <GlobalEnvSection />}
                 {activeTab === 'thinking' && <ThinkingSection />}
@@ -175,7 +175,7 @@ function SettingsPageInner() {
         </PanelResizeHandle>
 
         {/* Right Panel - Config Viewer */}
-        <Panel defaultSize={60} minSize={35}>
+        <Panel defaultSize={54} minSize={35}>
           <div className="h-full flex flex-col">
             {/* Header */}
             <div className="p-4 border-b bg-background flex items-center justify-between">

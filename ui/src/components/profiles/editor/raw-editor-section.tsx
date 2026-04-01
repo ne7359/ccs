@@ -24,6 +24,8 @@ interface RawEditorSectionProps {
   imageAnalysisStatus?: ImageAnalysisStatus | null;
   imageAnalysisStatusSource?: 'saved' | 'editor';
   imageAnalysisStatusPreviewState?: 'saved' | 'preview' | 'refreshing' | 'invalid';
+  nativeReadPreferenceOverride?: boolean;
+  onToggleNativeRead?: (enabled: boolean) => void;
   onChange: (value: string) => void;
   missingRequiredFields?: string[];
 }
@@ -37,6 +39,8 @@ export function RawEditorSection({
   imageAnalysisStatus,
   imageAnalysisStatusSource = 'saved',
   imageAnalysisStatusPreviewState = 'saved',
+  nativeReadPreferenceOverride,
+  onToggleNativeRead,
   onChange,
   missingRequiredFields = [],
 }: RawEditorSectionProps) {
@@ -91,6 +95,8 @@ export function RawEditorSection({
             target={profileTarget}
             source={imageAnalysisStatusSource}
             previewState={imageAnalysisStatusPreviewState}
+            nativeReadPreferenceOverride={nativeReadPreferenceOverride}
+            onToggleNativeRead={onToggleNativeRead}
           />
         </div>
         {/* Global Env Indicator */}

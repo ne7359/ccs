@@ -11,8 +11,8 @@ export function useSettingsTab() {
   // Normalize to lowercase for case-insensitive matching (fixes ?tab=Backups vs ?tab=backups)
   const tabParam = searchParams.get('tab')?.toLowerCase();
   const activeTab: SettingsTab =
-    tabParam === 'imageanalysis'
-      ? 'imageanalysis'
+    tabParam === 'imageanalysis' || tabParam === 'image'
+      ? 'image'
       : tabParam === 'channels'
         ? 'channels'
         : tabParam === 'globalenv'
