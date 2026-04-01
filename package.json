@@ -1,6 +1,6 @@
 {
   "name": "@kaitranntt/ccs",
-  "version": "7.63.0-dev.9",
+  "version": "7.63.1",
   "description": "Claude Code Switch - Instant profile switching between Claude, GLM, Kimi, and more",
   "keywords": [
     "cli",
@@ -87,7 +87,6 @@
     "ui:build": "cd ui && bun run build",
     "ui:preview": "cd ui && bun run preview",
     "ui:validate": "cd ui && bun run validate",
-    "prepack": "bun run build:all",
     "prepare": "husky",
     "postinstall": "node scripts/postinstall.js"
   },

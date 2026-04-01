@@ -1,3 +1,9 @@
+## [7.63.1](https://github.com/kaitranntt/ccs/compare/v7.63.0...v7.63.1) (2026-04-01)
+
+### Hotfixes
+
+* **ci:** harden ai review workflow for release PRs ([0b72ecd](https://github.com/kaitranntt/ccs/commit/0b72ecd36f0277f1c5407ff4bbe442305477a60e))
+
 ## [7.63.0](https://github.com/kaitranntt/ccs/compare/v7.62.2...v7.63.0) (2026-03-30)
 
 ### Features
