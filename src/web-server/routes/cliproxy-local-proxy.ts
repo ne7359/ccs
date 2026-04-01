@@ -19,9 +19,16 @@ export interface CliproxyLocalProxyDeps {
   resolveTargetPort?: () => number;
 }
 
+/** Proxy request timeout in milliseconds (30 seconds) */
+const PROXY_TIMEOUT_MS = 30_000;
+
 function resolveLocalCliproxyPort(): number {
-  const config = loadOrCreateUnifiedConfig();
-  return validatePort(config.cliproxy_server?.local?.port ?? CLIPROXY_DEFAULT_PORT);
+  try {
+    const config = loadOrCreateUnifiedConfig();
+    return validatePort(config.cliproxy_server?.local?.port ?? CLIPROXY_DEFAULT_PORT);
+  } catch {
+    return CLIPROXY_DEFAULT_PORT;
+  }
 }
 
 function isJsonContentType(contentType: string | string[] | undefined): boolean {
@@ -30,22 +37,17 @@ function isJsonContentType(contentType: string | string[] | undefined): boolean 
 }
 
 function buildProxyBody(req: Request): Buffer | undefined {
-  if (!isJsonContentType(req.headers['content-type']) || req.body === undefined) {
+  // If express.json() parsed the body (content-type is JSON and req.body is populated),
+  // re-serialize it since the original request stream was consumed by the middleware.
+  if (
+    !isJsonContentType(req.headers['content-type']) ||
+    req.body === undefined ||
+    req.body === null
+  ) {
     return undefined;
   }
 
-  const contentLengthHeader = req.headers['content-length'];
-  const contentLength = Array.isArray(contentLengthHeader)
-    ? contentLengthHeader[0]
-    : contentLengthHeader;
-  const hasTransferEncoding = req.headers['transfer-encoding'] !== undefined;
-  const parsedContentLength =
-    typeof contentLength === 'string' ? Number.parseInt(contentLength, 10) : NaN;
-
-  if (!hasTransferEncoding && (!Number.isFinite(parsedContentLength) || parsedContentLength <= 0)) {
-    return undefined;
-  }
-
+  // express.json() sets req.body to the parsed value — re-serialize for the proxy target
   return Buffer.from(JSON.stringify(req.body));
 }
 
@@ -100,12 +102,17 @@ export function createCliproxyLocalProxyRouter(deps: CliproxyLocalProxyDeps = {}
         path: targetPath,
         method: req.method,
         headers: buildProxyHeaders(req.headers, targetPort, bodyBuffer),
+        timeout: PROXY_TIMEOUT_MS,
       },
       (proxyRes) => {
         res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
-        proxyRes.pipe(res, { end: true });
+        // Manual streaming instead of pipe() for Bun runtime compatibility
+        proxyRes.on('data', (chunk: Buffer) => res.write(chunk));
+        proxyRes.on('end', () => res.end());
       }
     );
+
+    proxyReq.on('timeout', () => proxyReq.destroy());
 
     proxyReq.on('error', () => {
       if (!res.headersSent) {
@@ -113,7 +120,9 @@ export function createCliproxyLocalProxyRouter(deps: CliproxyLocalProxyDeps = {}
       }
     });
 
-    req.on('aborted', () => proxyReq.destroy());
+    // Clean up proxy connection when client disconnects.
+    // Only use res.on('close') — req.on('close') fires with req.destroyed=true
+    // in Bun after body consumption, which would prematurely kill the proxy.
     res.on('close', () => {
       if (!res.writableEnded) {
         proxyReq.destroy();
@@ -122,6 +131,14 @@ export function createCliproxyLocalProxyRouter(deps: CliproxyLocalProxyDeps = {}
 
     if (bodyBuffer) {
       proxyReq.end(bodyBuffer);
+      return;
+    }
+
+    // For methods without a body (GET, HEAD, etc.) or when express.json()
+    // has already consumed the stream, end the request immediately.
+    const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
+    if (!hasBody) {
+      proxyReq.end();
       return;
     }
 

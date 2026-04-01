@@ -56,6 +56,8 @@ afterEach(async () => {
       continue;
     }
 
+    // Force-close keep-alive connections so server.close() doesn't hang
+    server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
@@ -117,5 +119,34 @@ describe('cliproxy local proxy route', () => {
       method: 'PATCH',
       path: '/v0/management/test',
     });
+  });
+
+  it('forwards GET requests and returns backend response', async () => {
+    const backend = await createBackendServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html>management panel</html>');
+    });
+    const proxy = await createProxyServer({
+      resolveTargetPort: () => backend.port,
+      enforceAccess: () => true,
+    });
+
+    const response = await fetch(`${proxy.baseUrl}/api/cliproxy-local/management.html`);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('<html>management panel</html>');
+  });
+
+  it('returns 502 when CLIProxy is not reachable', async () => {
+    // Use a port with nothing listening
+    const proxy = await createProxyServer({
+      resolveTargetPort: () => 19999,
+      enforceAccess: () => true,
+    });
+
+    const response = await fetch(`${proxy.baseUrl}/api/cliproxy-local/`);
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'CLIProxy is not reachable' });
   });
 });
