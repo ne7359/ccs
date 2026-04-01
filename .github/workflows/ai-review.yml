@@ -151,6 +151,8 @@ jobs:
       MAX_THINKING_TOKENS: '16000'
       REVIEW_OUTPUT_FILE: pr_review.md
       REVIEW_COMMENT_FILE: .ccs-ai-review-comment.md
+      REVIEW_OUTPUT_SCHEMA: >-
+        {"type":"object","additionalProperties":false,"properties":{"summary":{"type":"string","minLength":1,"maxLength":600},"findings":{"type":"array","maxItems":6,"items":{"type":"object","additionalProperties":false,"properties":{"severity":{"type":"string","enum":["high","medium","low"]},"title":{"type":"string","minLength":1,"maxLength":180},"file":{"type":"string","minLength":1,"maxLength":240},"line":{"type":["integer","null"],"minimum":1},"what":{"type":"string","minLength":1,"maxLength":500},"why":{"type":"string","minLength":1,"maxLength":500},"fix":{"type":"string","minLength":1,"maxLength":500}},"required":["severity","title","file","what","why","fix"]}},"securityChecklist":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"object","additionalProperties":false,"properties":{"check":{"type":"string","minLength":1,"maxLength":80},"status":{"type":"string","enum":["pass","fail","na"]},"notes":{"type":"string","minLength":1,"maxLength":180}},"required":["check","status","notes"]}},"ccsCompliance":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"object","additionalProperties":false,"properties":{"rule":{"type":"string","minLength":1,"maxLength":80},"status":{"type":"string","enum":["pass","fail","na"]},"notes":{"type":"string","minLength":1,"maxLength":180}},"required":["rule","status","notes"]}},"informational":{"type":"array","maxItems":4,"items":{"type":"string","minLength":1,"maxLength":220}},"strengths":{"type":"array","maxItems":4,"items":{"type":"string","minLength":1,"maxLength":220}},"overallAssessment":{"type":"string","enum":["approved","approved_with_notes","changes_requested"]},"overallRationale":{"type":"string","minLength":1,"maxLength":320}},"required":["summary","findings","securityChecklist","ccsCompliance","informational","strengths","overallAssessment","overallRationale"]}
 
     steps:
       - name: Prepare isolated Claude runtime
@@ -200,16 +202,51 @@ jobs:
         env:
           CONTRIBUTOR_SOURCE: ${{ needs.prepare.outputs.contributor_source }}
           BASE_REF: ${{ github.base_ref || 'dev' }}
+          USE_CHECKED_OUT_REVIEW_ASSETS: >-
+            ${{ github.event_name == 'workflow_dispatch' && needs.prepare.outputs.contributor_source == 'internal' && '1' || '' }}
         run: |
-          # Always load prompt from base branch to prevent PR-controlled prompt injection.
-          # External PRs could modify review-prompt.md to suppress security findings.
           PROMPT_CONTENT=""
-          git fetch origin "$BASE_REF" --depth=1 2>/dev/null || true
-          PROMPT_CONTENT=$(git show "origin/${BASE_REF}:.github/review-prompt.md" 2>/dev/null || echo "")
+          if [ -n "$USE_CHECKED_OUT_REVIEW_ASSETS" ]; then
+            # workflow_dispatch on an internal PR is the trusted pre-merge replay path.
+            # Use the checked-out branch assets so maintainers can verify the exact formatter under test.
+            PROMPT_CONTENT=$(cat .github/review-prompt.md 2>/dev/null || echo "")
+          else
+            # pull_request_target and issue_comment must stay pinned to the base branch to prevent prompt injection.
+            git fetch origin "$BASE_REF" --depth=1 2>/dev/null || true
+            PROMPT_CONTENT=$(git show "origin/${BASE_REF}:.github/review-prompt.md" 2>/dev/null || echo "")
+          fi
           if [ -z "$PROMPT_CONTENT" ]; then
             echo "::warning::.github/review-prompt.md not found on base branch ${BASE_REF} — using fallback"
             PROMPT_CONTENT="You are a red-team code reviewer. Find every way this code can fail, be exploited, or produce incorrect results. Flag security issues, logic errors, missing error handling, race conditions, and injection risks. Follow the repository CLAUDE.md for project-specific guidelines. Output findings grouped by severity: High (must fix), Medium (should fix), Low (track). Use strict approval criteria."
           fi
+
+          NORMALIZER_PATH="$RUNNER_TEMP/normalize-ai-review-output.mjs"
+          if [ -n "$USE_CHECKED_OUT_REVIEW_ASSETS" ]; then
+            cp scripts/github/normalize-ai-review-output.mjs "$NORMALIZER_PATH"
+          elif ! git show "origin/${BASE_REF}:scripts/github/normalize-ai-review-output.mjs" > "$NORMALIZER_PATH" 2>/dev/null; then
+            echo "::warning::scripts/github/normalize-ai-review-output.mjs not found on base branch ${BASE_REF} — using safe fallback normalizer"
+            printf '%s\n' \
+              "import fs from 'node:fs';" \
+              "" \
+              "const outputFile = process.env.AI_REVIEW_OUTPUT_FILE || 'pr_review.md';" \
+              "const model = process.env.AI_REVIEW_MODEL || 'unknown-model';" \
+              "const runUrl = process.env.AI_REVIEW_RUN_URL || '#';" \
+              "const content = [" \
+              "  '### ⚠️ AI Review Incomplete'," \
+              "  ''," \
+              "  'The trusted base-branch normalizer was unavailable, so this workflow skipped rendering any PR-controlled review output.'," \
+              "  ''," \
+              "  '- Reason: trusted normalizer missing on base branch'," \
+              "  ''," \
+              "  \`Re-run \\\`/review\\\` or inspect [the workflow run](\${runUrl}).\`," \
+              "  ''," \
+              "  \`> 🤖 Reviewed by \\\`\${model}\\\`\`," \
+              "].join('\\n');" \
+              "fs.writeFileSync(outputFile, \`\${content}\\n\`, 'utf8');" \
+              > "$NORMALIZER_PATH"
+          fi
+          echo "AI_REVIEW_NORMALIZER=$NORMALIZER_PATH" >> "$GITHUB_ENV"
+
           DELIMITER="REVIEW_PROMPT_$(openssl rand -hex 16)"
           {
             echo "content<<${DELIMITER}"
@@ -224,7 +261,8 @@ jobs:
           anthropic_api_key: ${{ secrets.GLM_API_KEY }}
           github_token: ${{ steps.app-token.outputs.token }}
           allowed_non_write_users: ${{ needs.prepare.outputs.contributor_source == 'external' && '*' || '' }}
-          show_full_output: true # Visible logs for debugging slow/failing reviews
+          display_report: false # Keep all public review output on the normalized comment path
+          show_full_output: false # Keep scratch output out of public logs
           track_progress: false # Disabled - no progress comments, just final review
           prompt: |
             think
@@ -242,55 +280,32 @@ jobs:
 
             ${{ steps.review-prompt.outputs.content }}
 
-            ## IMPORTANT: Writing the Review
-            After completing your analysis, use the `Write` tool to write the final review markdown to `${{ env.REVIEW_OUTPUT_FILE }}`.
-            Do NOT use `Edit` tool — use `Write` tool directly to create the file in one shot.
-            Do NOT post any GitHub comments yourself. The workflow will publish the saved file.
-            Do NOT modify any source code files — this is a READ-ONLY review.
-
-            End your review with:
-            > 🤖 Reviewed by `${{ env.REVIEW_MODEL }}`
-
-            IMPORTANT RULES:
-            - Use `Write` tool to overwrite `${{ env.REVIEW_OUTPUT_FILE }}` with the complete review
-            - Do NOT use shell operators like || or && in bash commands
-            - Do NOT use heredoc (<<) syntax in bash commands
-            - Use simple, single-purpose bash commands only
+            ## Runtime Rules
+            - This is a READ-ONLY review. Do not edit files.
+            - Use the checked-out PR branch plus surrounding repository context before reporting a finding.
+            - Return only structured output that matches the provided JSON schema.
+            - Do NOT write files.
+            - Do NOT post GitHub comments yourself.
+            - If no confirmed issues remain, return an empty findings array instead of inventing low-value feedback.
 
           claude_args: |
             --bare
             --model ${{ env.REVIEW_MODEL }}
             --permission-mode bypassPermissions
             --max-turns 40
-            --allowedTools "Glob,Grep,Read,Write,Bash(gh pr diff *),Bash(gh pr view *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(cat *),Bash(ls *),Bash(wc *),Bash(head *),Bash(tail *),Bash(find *)"
+            --allowedTools "Read,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(cat:*),Bash(ls:*),Bash(wc:*),Bash(head:*),Bash(tail:*),Bash(find:*),Bash(grep:*)"
+            --json-schema '${{ env.REVIEW_OUTPUT_SCHEMA }}'
 
-      # Fallback: if Claude didn't write the review file, extract from execution output
-      - name: Extract review from execution output (fallback)
+      - name: Render review comment
         if: always() && steps.claude-review.outcome != 'cancelled'
         run: |
-          EXEC_LOG="$RUNNER_TEMP/claude-execution-output.json"
-          if [ -s "$REVIEW_OUTPUT_FILE" ]; then
-            echo "[i] Review file exists, skipping fallback extraction"
-            exit 0
-          fi
-          if [ ! -f "$EXEC_LOG" ]; then
-            echo "::warning::No execution output found at $EXEC_LOG"
-            exit 0
-          fi
-          # Extract last assistant text message as fallback review
-          EXTRACTED=$(jq -r '
-            [.[] | select(.type == "assistant") | .message.content[]?
-              | select(.type == "text") | .text] | last // empty
-          ' "$EXEC_LOG" 2>/dev/null || true)
-          if [ -z "$EXTRACTED" ]; then
-            echo "::warning::Could not extract review content from execution output"
-            printf '## AI Review (incomplete)\n\nClaude completed but did not produce a structured review.\nCheck the [execution log artifact](%s) for details.\n\n> Reviewed by `%s` (fallback extraction)\n' \
-              "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-              "$REVIEW_MODEL" > "$REVIEW_OUTPUT_FILE"
-          else
-            printf '%s\n' "$EXTRACTED" > "$REVIEW_OUTPUT_FILE"
-          fi
-          echo "[i] Fallback review extracted from execution output"
+          node "$AI_REVIEW_NORMALIZER"
+        env:
+          AI_REVIEW_EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          AI_REVIEW_MODEL: ${{ env.REVIEW_MODEL }}
+          AI_REVIEW_OUTPUT_FILE: ${{ env.REVIEW_OUTPUT_FILE }}
+          AI_REVIEW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AI_REVIEW_STRUCTURED_OUTPUT: ${{ steps.claude-review.outputs.structured_output }}
 
       - name: Publish review comment
         if: always() && steps.claude-review.outcome != 'cancelled'
