@@ -65,7 +65,9 @@ function cleanMultilineText(value) {
 }
 
 function escapeMarkdown(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/([`*_{}[\]<>|])/g, '\\$1');
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/([`*_{}[\]<>|])/g, '\\$1');
 }
 
 function escapeMarkdownText(value) {
@@ -155,7 +157,8 @@ function normalizeRenderingMetadata(raw) {
   if (packetIncludedFiles !== null) metadata.packetIncludedFiles = packetIncludedFiles;
   if (packetTotalFiles !== null) metadata.packetTotalFiles = packetTotalFiles;
   if (packetOmittedFiles !== null) metadata.packetOmittedFiles = packetOmittedFiles;
-  if (scopeLabel === 'reviewable files' || scopeLabel === 'changed files') metadata.scopeLabel = scopeLabel;
+  if (scopeLabel === 'reviewable files' || scopeLabel === 'changed files')
+    metadata.scopeLabel = scopeLabel;
 
   return metadata;
 }
@@ -203,7 +206,8 @@ function formatScopeSummary(rendering) {
     typeof rendering.selectedChanges === 'number' &&
     typeof rendering.reviewableChanges === 'number'
   ) {
-    const changeLabel = scopeLabel === 'reviewable files' ? 'reviewable changed lines' : 'changed lines';
+    const changeLabel =
+      scopeLabel === 'reviewable files' ? 'reviewable changed lines' : 'changed lines';
     return `${fileScope}; ${rendering.selectedChanges}/${rendering.reviewableChanges} ${changeLabel}`;
   }
 
@@ -254,7 +258,8 @@ function formatReviewContext(rendering) {
     parts.push(`packet ${rendering.packetIncludedFiles}/${rendering.packetTotalFiles}`);
   }
 
-  const runtimeBudget = formatCombinedBudget(rendering) || formatTimeBudget(rendering) || formatTurnBudget(rendering);
+  const runtimeBudget =
+    formatCombinedBudget(rendering) || formatTimeBudget(rendering) || formatTurnBudget(rendering);
   if (runtimeBudget) {
     parts.push(runtimeBudget);
   }
@@ -301,7 +306,10 @@ function describeIncompleteOutcome({ reason, rendering, turnsUsed, status }) {
     return `The ${reviewLabel} ended before it could produce validated structured output within the available ${combinedBudget} runtime budget.`;
   }
 
-  if (classifyFallbackReason(reason) === 'missing' || classifyFallbackReason(reason) === 'invalid_json') {
+  if (
+    classifyFallbackReason(reason) === 'missing' ||
+    classifyFallbackReason(reason) === 'invalid_json'
+  ) {
     return `The ${reviewLabel} ended without validated structured output, so the normalizer published the safe fallback comment instead.`;
   }
 
@@ -344,7 +352,10 @@ function normalizeChecklistRows(fieldName, labelField, raw) {
 
   const rows = [];
   for (const [index, item] of raw.entries()) {
-    const label = validatePlainTextField(`${fieldName}[${index}].${labelField}`, item?.[labelField]);
+    const label = validatePlainTextField(
+      `${fieldName}[${index}].${labelField}`,
+      item?.[labelField]
+    );
     if (!label.ok) return label;
 
     const notes = validatePlainTextField(`${fieldName}[${index}].notes`, item?.notes);
@@ -479,16 +490,19 @@ function formatHotspotFiles(files) {
 function formatRemainingCoverage(rendering) {
   if (
     typeof rendering.reviewableFiles !== 'number' ||
-    (typeof rendering.packetIncludedFiles !== 'number' && typeof rendering.selectedFiles !== 'number')
+    (typeof rendering.packetIncludedFiles !== 'number' &&
+      typeof rendering.selectedFiles !== 'number')
   ) {
     return null;
   }
 
-  const coveredFiles = typeof rendering.packetIncludedFiles === 'number'
-    ? rendering.packetIncludedFiles
-    : rendering.selectedFiles;
+  const coveredFiles =
+    typeof rendering.packetIncludedFiles === 'number'
+      ? rendering.packetIncludedFiles
+      : rendering.selectedFiles;
   const remainingFiles = Math.max(rendering.reviewableFiles - coveredFiles, 0);
-  const packetOmittedFiles = typeof rendering.packetOmittedFiles === 'number' ? rendering.packetOmittedFiles : 0;
+  const packetOmittedFiles =
+    typeof rendering.packetOmittedFiles === 'number' ? rendering.packetOmittedFiles : 0;
   const hasChangeCounts =
     packetOmittedFiles === 0 &&
     typeof rendering.selectedChanges === 'number' &&
@@ -540,7 +554,11 @@ export function normalizeStructuredOutput(raw) {
   if (!overallRationale.ok) return overallRationale;
 
   const findings = Array.isArray(parsed.findings) ? parsed.findings : null;
-  const securityChecklist = normalizeChecklistRows('securityChecklist', 'check', parsed.securityChecklist);
+  const securityChecklist = normalizeChecklistRows(
+    'securityChecklist',
+    'check',
+    parsed.securityChecklist
+  );
   if (!securityChecklist.ok) return securityChecklist;
 
   const ccsCompliance = normalizeChecklistRows('ccsCompliance', 'rule', parsed.ccsCompliance);
@@ -582,7 +600,11 @@ export function normalizeStructuredOutput(raw) {
     if (finding && Object.hasOwn(finding, 'line')) {
       if (finding.line === null) {
         line = null;
-      } else if (typeof finding.line === 'number' && Number.isInteger(finding.line) && finding.line > 0) {
+      } else if (
+        typeof finding.line === 'number' &&
+        Number.isInteger(finding.line) &&
+        finding.line > 0
+      ) {
         line = finding.line;
       } else {
         return { ok: false, reason: `findings[${index}].line is invalid` };
@@ -668,7 +690,9 @@ function renderFindingReference(finding) {
 }
 
 function getOrderedFindings(findings) {
-  return SEVERITY_ORDER.flatMap((severity) => findings.filter((finding) => finding.severity === severity));
+  return SEVERITY_ORDER.flatMap((severity) =>
+    findings.filter((finding) => finding.severity === severity)
+  );
 }
 
 function renderTopFindings(findings) {
@@ -726,37 +750,65 @@ function renderDetailedFindings(findings) {
 
 export function renderStructuredReview(review, { model, rendering: renderOptions } = {}) {
   const rendering = mergeRenderingMetadata(review?.rendering, renderOptions);
-  const lines = [
-    '### Verdict',
-    '',
-    `**${ASSESSMENTS[review.overallAssessment]}** — ${renderInlineText(review.overallRationale)}`,
-    '',
-    renderInlineText(review.summary),
-  ];
+  const lines = ['### 📋 Summary', '', renderInlineText(review.summary)];
   const reviewContext = formatReviewContext(rendering);
 
   if (reviewContext) {
     lines.push('', reviewContext);
   }
 
-  lines.push('', '### Top Findings', '', ...renderTopFindings(review.findings));
-  lines.push(...renderSection(`### Detailed Findings (${review.findings.length})`, renderDetailedFindings(review.findings)));
+  lines.push('', '### 🔍 Findings');
+  if (review.findings.length === 0) {
+    lines.push('', 'No confirmed issues found after reviewing the diff and surrounding code.');
+  } else {
+    for (const severity of SEVERITY_ORDER) {
+      const scopedFindings = review.findings.filter((finding) => finding.severity === severity);
+      if (scopedFindings.length === 0) continue;
+
+      lines.push('', SEVERITY_HEADERS[severity], '');
+      for (const finding of scopedFindings) {
+        const snippets = Array.isArray(finding.snippets) ? finding.snippets : [];
+        lines.push(
+          `- **${renderCode(renderFindingReference(finding))} — ${renderInlineText(finding.title)}**`
+        );
+        lines.push(`  Problem: ${renderInlineText(finding.what)}`);
+        lines.push(`  Why it matters: ${renderInlineText(finding.why)}`);
+        lines.push(`  Suggested fix: ${renderInlineText(finding.fix)}`);
+
+        if (snippets.length > 0) {
+          lines.push('');
+          lines.push(...renderFindingSnippets(snippets));
+        }
+
+        lines.push('');
+      }
+    }
+
+    if (lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+  }
+
   lines.push(
     ...renderSection(
-      `### Security Checklist (${review.securityChecklist.length})`,
+      '### 🔒 Security Checklist',
       renderChecklistTable('Check', 'check', review.securityChecklist)
     )
   );
   lines.push(
     ...renderSection(
-      `### CCS Compliance (${review.ccsCompliance.length})`,
+      '### 📊 CCS Compliance',
       renderChecklistTable('Rule', 'rule', review.ccsCompliance)
     )
   );
-  lines.push(...renderSection(`### Informational (${review.informational.length})`, renderBulletSection(review.informational)));
-  lines.push(...renderSection(`### What's Done Well (${review.strengths.length})`, renderBulletSection(review.strengths)));
+  lines.push(...renderSection('### 💡 Informational', renderBulletSection(review.informational)));
+  lines.push(...renderSection("### ✅ What's Done Well", renderBulletSection(review.strengths)));
 
   lines.push(
+    '',
+    '### 🎯 Overall Assessment',
+    '',
+    `**${ASSESSMENTS[review.overallAssessment]}** — ${renderInlineText(review.overallRationale)}`,
     '',
     `> 🤖 Reviewed by \`${model}\``
   );
@@ -784,7 +836,9 @@ export function renderIncompleteReview({
   ];
 
   if (rendering.mode) {
-    lines.push(`- Review mode: ${renderCode(rendering.mode)} (${escapeMarkdownText(REVIEW_MODE_DETAILS[rendering.mode])})`);
+    lines.push(
+      `- Review mode: ${renderCode(rendering.mode)} (${escapeMarkdownText(REVIEW_MODE_DETAILS[rendering.mode])})`
+    );
   }
   const scopeSummary = formatScopeSummary(rendering);
   if (scopeSummary) {
@@ -804,7 +858,9 @@ export function renderIncompleteReview({
   }
   const remainingCoverage = formatRemainingCoverage(rendering);
   if (remainingCoverage) {
-    lines.push(`- Remaining reviewable scope not fully covered: ${escapeMarkdownText(remainingCoverage)}`);
+    lines.push(
+      `- Remaining reviewable scope not fully covered: ${escapeMarkdownText(remainingCoverage)}`
+    );
   }
   lines.push(`- Manual follow-up: ${escapeMarkdownText(formatFallbackFollowUp(rendering))}`);
   if (runtimeTools?.length) {
@@ -814,7 +870,12 @@ export function renderIncompleteReview({
     lines.push(`- Turns used: ${turnsUsed}`);
   }
 
-  lines.push('', `Re-run \`/review\` or inspect [the workflow run](${runUrl}).`, '', `> 🤖 Reviewed by \`${model}\``);
+  lines.push(
+    '',
+    `Re-run \`/review\` or inspect [the workflow run](${runUrl}).`,
+    '',
+    `> 🤖 Reviewed by \`${model}\``
+  );
   return lines.join('\n');
 }
 
@@ -857,15 +918,16 @@ export function writeReviewFromEnv(env = process.env) {
   fs.writeFileSync(outputFile, `${content}\n`, 'utf8');
 
   if (!validation.ok) {
-    console.warn(`::warning::AI review output normalization fell back to incomplete comment: ${validation.reason}`);
+    console.warn(
+      `::warning::AI review output normalization fell back to incomplete comment: ${validation.reason}`
+    );
   }
 
   return { usedFallback: !validation.ok, content };
 }
 
 const isMain =
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isMain) {
   writeReviewFromEnv();
