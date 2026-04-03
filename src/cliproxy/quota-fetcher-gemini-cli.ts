@@ -11,42 +11,27 @@ import { getAuthDir } from './config-generator';
 import { getProviderAccounts, getPausedDir } from './account-manager';
 import { sanitizeEmail, isTokenExpired } from './auth-utils';
 import { refreshGeminiToken } from './auth/gemini-token-refresh';
+import {
+  buildGeminiCliBucketsFromParsedBuckets,
+  type GeminiCliParsedBucket,
+} from './gemini-cli-quota-normalizer';
 import type { GeminiCliQuotaResult, GeminiCliBucket } from './quota-types';
 
 /** Google Cloud Code API endpoints */
 const GEMINI_CLI_API_BASE = 'https://cloudcode-pa.googleapis.com';
 const GEMINI_CLI_API_VERSION = 'v1internal';
+const GEMINI_CLI_QUOTA_URL = `${GEMINI_CLI_API_BASE}/${GEMINI_CLI_API_VERSION}:retrieveUserQuota`;
+const GEMINI_CLI_CODE_ASSIST_URL = `${GEMINI_CLI_API_BASE}/${GEMINI_CLI_API_VERSION}:loadCodeAssist`;
 const GEMINI_CLI_ERROR_DETAIL_MAX_LENGTH = 320;
 const GEMINI_CLI_ERROR_DETAIL_TRUNCATION_SUFFIX = '...[truncated]';
-
-/**
- * Model groups for quota consolidation.
- * Update when Google releases new Gemini models to include them in quota display.
- */
-const GEMINI_CLI_GROUPS: Record<
-  string,
-  {
-    label: string;
-    models: string[];
-  }
-> = {
-  'gemini-flash-series': {
-    label: 'Gemini Flash Series',
-    models: [
-      'gemini-3-flash-preview',
-      'gemini-3.1-flash-preview',
-      'gemini-2.5-flash',
-      'gemini-2.5-flash-lite',
-    ],
-  },
-  'gemini-pro-series': {
-    label: 'Gemini Pro Series',
-    models: ['gemini-3-pro-preview', 'gemini-3.1-pro-preview', 'gemini-2.5-pro'],
-  },
+const GEMINI_CLI_G1_CREDIT_TYPE = 'GOOGLE_ONE_AI';
+const GEMINI_CLI_TIER_LABELS: Record<string, string> = {
+  'free-tier': 'Free',
+  'legacy-tier': 'Legacy',
+  'standard-tier': 'Standard',
+  'g1-pro-tier': 'Pro',
+  'g1-ultra-tier': 'Ultra',
 };
-
-/** Models to ignore in quota display (deprecated) */
-const IGNORED_MODEL_PREFIXES = ['gemini-2.0-flash'];
 
 /** Auth data extracted from Gemini CLI auth file */
 interface GeminiCliAuthData {
@@ -75,10 +60,36 @@ interface GeminiCliQuotaResponse {
   buckets?: RawGeminiCliBucket[];
 }
 
+interface GeminiCliCredits {
+  creditType?: string;
+  credit_type?: string;
+  creditAmount?: string | number;
+  credit_amount?: string | number;
+}
+
+interface GeminiCliUserTier {
+  id?: string;
+  availableCredits?: GeminiCliCredits[];
+  available_credits?: GeminiCliCredits[];
+}
+
+interface GeminiCliCodeAssistResponse {
+  currentTier?: GeminiCliUserTier | null;
+  current_tier?: GeminiCliUserTier | null;
+  paidTier?: GeminiCliUserTier | null;
+  paid_tier?: GeminiCliUserTier | null;
+}
+
 interface ParsedGeminiCliErrorBody {
   errorCode?: string;
   errorDetail?: string;
   message?: string;
+}
+
+interface GeminiCliSupplementaryInfo {
+  tierLabel: string | null;
+  tierId: string | null;
+  creditBalance: number | null;
 }
 
 /**
@@ -234,23 +245,112 @@ function readGeminiCliAuthData(accountId: string): GeminiCliAuthData | null {
   return null;
 }
 
-/**
- * Find which group a model belongs to
- */
-function findModelGroup(modelId: string): { groupId: string; label: string } | null {
-  for (const [groupId, group] of Object.entries(GEMINI_CLI_GROUPS)) {
-    if (group.models.includes(modelId)) {
-      return { groupId, label: group.label };
+function normalizeStringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeNumberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
     }
   }
   return null;
 }
 
-/**
- * Check if model should be ignored
- */
-function shouldIgnoreModel(modelId: string): boolean {
-  return IGNORED_MODEL_PREFIXES.some((prefix) => modelId.startsWith(prefix));
+function resolveGeminiCliTierId(payload: GeminiCliCodeAssistResponse | null): string | null {
+  if (!payload) return null;
+  const currentTier = payload.currentTier ?? payload.current_tier;
+  const paidTier = payload.paidTier ?? payload.paid_tier;
+  const rawId = normalizeStringValue(paidTier?.id) ?? normalizeStringValue(currentTier?.id);
+  return rawId ? rawId.toLowerCase() : null;
+}
+
+function resolveGeminiCliTierLabel(payload: GeminiCliCodeAssistResponse | null): string | null {
+  const tierId = resolveGeminiCliTierId(payload);
+  if (!tierId) return null;
+  return GEMINI_CLI_TIER_LABELS[tierId] ?? tierId;
+}
+
+function resolveGeminiCliCreditBalance(payload: GeminiCliCodeAssistResponse | null): number | null {
+  if (!payload) return null;
+
+  const paidTier = payload.paidTier ?? payload.paid_tier;
+  const currentTier = payload.currentTier ?? payload.current_tier;
+  const tier = paidTier ?? currentTier;
+  if (!tier) return null;
+
+  const credits = tier.availableCredits ?? tier.available_credits ?? [];
+  let total = 0;
+  let found = false;
+  for (const credit of credits) {
+    const creditType = normalizeStringValue(credit.creditType ?? credit.credit_type);
+    if (creditType !== GEMINI_CLI_G1_CREDIT_TYPE) continue;
+
+    const amount = normalizeNumberValue(credit.creditAmount ?? credit.credit_amount);
+    if (amount !== null) {
+      total += amount;
+      found = true;
+    }
+  }
+
+  return found ? total : null;
+}
+
+async function fetchGeminiCliSupplementary(
+  accessToken: string,
+  projectId: string,
+  verbose: boolean
+): Promise<GeminiCliSupplementaryInfo> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await fetch(GEMINI_CLI_CODE_ASSIST_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        cloudaicompanionProject: projectId,
+        metadata: {
+          ideType: 'IDE_UNSPECIFIED',
+          platform: 'PLATFORM_UNSPECIFIED',
+          pluginType: 'GEMINI',
+          duetProject: projectId,
+        },
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      if (verbose) {
+        console.error(`[i] Gemini CLI supplementary metadata unavailable: HTTP ${response.status}`);
+      }
+      return { tierLabel: null, tierId: null, creditBalance: null };
+    }
+
+    const payload = (await response.json()) as GeminiCliCodeAssistResponse;
+    return {
+      tierLabel: resolveGeminiCliTierLabel(payload),
+      tierId: resolveGeminiCliTierId(payload),
+      creditBalance: resolveGeminiCliCreditBalance(payload),
+    };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (verbose) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[i] Gemini CLI supplementary metadata skipped: ${message}`);
+    }
+    return { tierLabel: null, tierId: null, creditBalance: null };
+  }
 }
 
 function buildGeminiCliFailureResult(
@@ -271,6 +371,9 @@ function buildGeminiCliFailureResult(
     success: false,
     buckets: [],
     projectId,
+    tierLabel: null,
+    tierId: null,
+    creditBalance: null,
     lastUpdated: Date.now(),
     accountId,
     error: options.error,
@@ -480,81 +583,38 @@ function buildGeminiCliHttpFailureResult(
  * Groups buckets by model series and token type
  */
 function buildGeminiCliBuckets(rawBuckets: RawGeminiCliBucket[]): GeminiCliBucket[] {
-  // Group buckets by groupId::tokenType
-  const grouped = new Map<
-    string,
-    {
-      label: string;
-      tokenType: string | null;
-      remainingFraction: number;
-      resetTime: string | null;
-      modelIds: string[];
-    }
-  >();
+  const parsedBuckets = rawBuckets
+    .map((bucket): GeminiCliParsedBucket | null => {
+      const modelId = normalizeStringValue(bucket.model_id ?? bucket.modelId);
+      if (!modelId) return null;
 
-  for (const bucket of rawBuckets) {
-    const modelId = bucket.model_id || bucket.modelId || '';
-    if (!modelId) continue;
+      const tokenType = normalizeStringValue(bucket.token_type ?? bucket.tokenType);
+      const remainingFractionRaw = normalizeNumberValue(
+        bucket.remaining_fraction ?? bucket.remainingFraction
+      );
+      const remainingAmount = normalizeNumberValue(
+        bucket.remaining_amount ?? bucket.remainingAmount
+      );
+      const resetTime = normalizeStringValue(bucket.reset_time ?? bucket.resetTime);
 
-    // Skip ignored models
-    if (shouldIgnoreModel(modelId)) continue;
-
-    const tokenType = bucket.token_type ?? bucket.tokenType ?? null;
-    // Clamp remainingFraction to [0, 1] range
-    const rawRemainingFraction = bucket.remaining_fraction ?? bucket.remainingFraction ?? 1;
-    const remainingFraction = Math.max(0, Math.min(1, rawRemainingFraction));
-    const resetTime = bucket.reset_time ?? bucket.resetTime ?? null;
-
-    // Find group for this model
-    const group = findModelGroup(modelId);
-    const groupId = group?.groupId || 'other';
-    const label = group?.label || 'Other Models';
-
-    // Create compound key for grouping
-    const key = `${groupId}::${tokenType || 'combined'}`;
-
-    const existing = grouped.get(key);
-    if (existing) {
-      // Merge: take the minimum remaining fraction (most limiting)
-      existing.remainingFraction = Math.min(existing.remainingFraction, remainingFraction);
-      // Keep earliest reset time if available
-      if (resetTime && (!existing.resetTime || resetTime < existing.resetTime)) {
-        existing.resetTime = resetTime;
+      let fallbackFraction: number | null = null;
+      if (remainingAmount !== null) {
+        fallbackFraction = remainingAmount <= 0 ? 0 : null;
+      } else if (resetTime) {
+        fallbackFraction = 0;
       }
-      existing.modelIds.push(modelId);
-    } else {
-      grouped.set(key, {
-        label,
+
+      return {
+        modelId,
         tokenType,
-        remainingFraction,
+        remainingFraction: remainingFractionRaw ?? fallbackFraction ?? 1,
+        remainingAmount,
         resetTime,
-        modelIds: [modelId],
-      });
-    }
-  }
+      };
+    })
+    .filter((bucket): bucket is GeminiCliParsedBucket => bucket !== null);
 
-  // Convert to array
-  const buckets: GeminiCliBucket[] = [];
-  for (const [key, data] of grouped.entries()) {
-    buckets.push({
-      id: key,
-      label: data.label,
-      tokenType: data.tokenType,
-      remainingFraction: data.remainingFraction,
-      remainingPercent: Math.round(data.remainingFraction * 100),
-      resetTime: data.resetTime,
-      modelIds: data.modelIds,
-    });
-  }
-
-  // Sort by label then token type
-  buckets.sort((a, b) => {
-    const labelCompare = a.label.localeCompare(b.label);
-    if (labelCompare !== 0) return labelCompare;
-    return (a.tokenType || '').localeCompare(b.tokenType || '');
-  });
-
-  return buckets;
+  return buildGeminiCliBucketsFromParsedBuckets(parsedBuckets);
 }
 
 /**
@@ -577,12 +637,11 @@ async function fetchWithAuthData(
     });
   }
 
-  const url = `${GEMINI_CLI_API_BASE}/${GEMINI_CLI_API_VERSION}:retrieveUserQuota`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5000);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(GEMINI_CLI_QUOTA_URL, {
       method: 'POST',
       signal: controller.signal,
       headers: {
@@ -609,6 +668,11 @@ async function fetchWithAuthData(
     const data = (await response.json()) as GeminiCliQuotaResponse;
     const rawBuckets = data.buckets || [];
     const buckets = buildGeminiCliBuckets(rawBuckets);
+    const supplementary = await fetchGeminiCliSupplementary(
+      authData.accessToken,
+      authData.projectId,
+      verbose
+    );
 
     if (verbose) console.error(`[i] Gemini CLI buckets found: ${buckets.length}`);
 
@@ -616,6 +680,9 @@ async function fetchWithAuthData(
       success: true,
       buckets,
       projectId: authData.projectId,
+      tierLabel: supplementary.tierLabel,
+      tierId: supplementary.tierId,
+      creditBalance: supplementary.creditBalance,
       lastUpdated: Date.now(),
       accountId,
     };
