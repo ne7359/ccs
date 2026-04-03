@@ -22,6 +22,8 @@ interface ControlPanelEmbedProps {
   port?: number;
 }
 
+// These keys intentionally mirror the upstream management-center auth schema.
+// Keep them in sync with external/Cli-Proxy-API-Management-Center/src/stores/useAuthStore.ts.
 const CONTROL_PANEL_AUTH_STORAGE_KEY = 'cli-proxy-auth';
 const CONTROL_PANEL_LOGIN_FLAG_KEY = 'isLoggedIn';
 const CONTROL_PANEL_API_BASE_KEY = 'apiBase';
@@ -152,6 +154,16 @@ export function ControlPanelEmbed({ port = CLIPROXY_DEFAULT_PORT }: ControlPanel
       );
     }
   }, [authTokensError]);
+
+  useEffect(() => {
+    if (isRemote) {
+      return;
+    }
+
+    return () => {
+      clearLocalControlPanelSession();
+    };
+  }, [isRemote]);
 
   const iframeLoaded = loadedFrameKey === iframeKey;
   const isLoading = !isSessionReady || !iframeLoaded;

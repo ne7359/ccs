@@ -76,7 +76,7 @@ describe('ControlPanelEmbed', () => {
 
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<ControlPanelEmbed />);
+    const { unmount } = render(<ControlPanelEmbed />);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/settings/auth/tokens/raw');
@@ -108,6 +108,15 @@ describe('ControlPanelEmbed', () => {
       expect(window.localStorage.setItem).toHaveBeenCalledWith('managementKey', 'custom-secret');
       expect(window.localStorage.setItem).toHaveBeenCalledWith('isLoggedIn', 'true');
     });
+
+    vi.clearAllMocks();
+    unmount();
+
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith('cli-proxy-auth');
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith('apiBase');
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith('apiUrl');
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith('managementKey');
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith('isLoggedIn');
   });
 
   it('clears stale local control-panel session keys when token bootstrap fails', async () => {
