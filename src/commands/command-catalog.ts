@@ -1,6 +1,6 @@
 import { COPILOT_SUBCOMMANDS } from '../copilot/constants';
+import { CURSOR_SUBCOMMANDS } from '../cursor/constants';
 import { CLIPROXY_PROVIDER_IDS } from '../cliproxy/provider-capabilities';
-import { CURSOR_SUBCOMMANDS } from './cursor-command';
 
 export type HelpTopicName = 'profiles' | 'providers' | 'completion' | 'targets';
 
@@ -310,9 +310,7 @@ export function getPublicRootCommands(): readonly RootCommandEntry[] {
 
 export function getAllRootCommandTokens(): string[] {
   return uniqueStrings(
-    ROOT_COMMAND_CATALOG.flatMap((entry) => [entry.name, ...(entry.aliases || [])]).concat(
-      'copilot'
-    )
+    ROOT_COMMAND_CATALOG.flatMap((entry) => [entry.name, ...(entry.aliases || [])])
   );
 }
 

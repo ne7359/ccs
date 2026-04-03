@@ -20,26 +20,6 @@ import { DEFAULT_CURSOR_CONFIG } from '../config/unified-config-types';
 import { renderCursorHelp, renderCursorModels, renderCursorStatus } from './cursor-command-display';
 import { ok, fail, info } from '../utils/ui';
 
-/** Valid cursor subcommands — imported by ccs.ts for routing */
-export const CURSOR_SUBCOMMANDS = [
-  'auth',
-  'status',
-  'models',
-  'start',
-  'stop',
-  'enable',
-  'disable',
-  'help',
-  '--help',
-  '-h',
-] as const;
-
-export function isCursorSubcommandToken(token?: string): boolean {
-  return (
-    Boolean(token) && CURSOR_SUBCOMMANDS.includes(token as (typeof CURSOR_SUBCOMMANDS)[number])
-  );
-}
-
 /**
  * Handle cursor subcommand.
  */

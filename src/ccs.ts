@@ -55,6 +55,7 @@ import {
   resolveOfficialChannelsLaunchPlan,
 } from './channels/official-channels-runtime';
 import { getOfficialChannelReadiness } from './channels/official-channels-store';
+import { isCursorSubcommandToken } from './cursor/constants';
 
 // Import centralized error handling
 import { handleError, runCleanup } from './errors';
@@ -467,9 +468,7 @@ async function main(): Promise<void> {
   // Special case: cursor command (Cursor local proxy integration)
   // Route known admin subcommands to the command handler, keep all other args as profile passthrough.
   if (firstArg === 'cursor' && args.length > 1) {
-    const { isCursorSubcommandToken, handleCursorCommand } = await import(
-      './commands/cursor-command'
-    );
+    const { handleCursorCommand } = await import('./commands/cursor-command');
     const cursorToken = args[1];
 
     if (isCursorSubcommandToken(cursorToken)) {
