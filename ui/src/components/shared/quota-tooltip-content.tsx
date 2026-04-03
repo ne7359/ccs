@@ -37,6 +37,23 @@ function formatPlanLabel(planType: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized.join(' ') : planType;
 }
 
+function formatAbsoluteResetTime(resetTime: string | null): string | null {
+  if (!resetTime) return null;
+  try {
+    const parsed = new Date(resetTime);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toLocaleString(undefined, {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function getClaudeWindowDisplayLabel(rateLimitType: string, fallback: string): string {
   switch (rateLimitType) {
     case 'five_hour':
@@ -235,19 +252,45 @@ export function QuotaTooltipContent({ quota, resetTime }: QuotaTooltipContentPro
 
   // Gemini provider tooltip
   if (isGeminiQuotaResult(quota)) {
+    const hasBucketResetTime = quota.buckets.some((bucket) => !!bucket.resetTime);
+
     return (
       <div className="text-xs space-y-1">
+        {quota.tierLabel && (
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Tier</span>
+            <span className="font-mono">{quota.tierLabel}</span>
+          </div>
+        )}
+        {quota.creditBalance !== null && quota.creditBalance !== undefined && (
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Credits</span>
+            <span className="font-mono">{quota.creditBalance.toLocaleString()}</span>
+          </div>
+        )}
         <p className="font-medium">Buckets:</p>
         {quota.buckets.map((b) => (
-          <div key={b.id} className="flex justify-between gap-4">
-            <span className={cn(b.remainingPercent < 20 && 'text-red-500')}>
-              {b.label}
-              {b.tokenType ? ` (${b.tokenType})` : ''}
-            </span>
-            <span className="font-mono">{b.remainingPercent}%</span>
+          <div key={b.id} className="space-y-0.5">
+            <div className="flex justify-between gap-4">
+              <span className={cn(b.remainingPercent < 20 && 'text-red-500')}>
+                {b.label}
+                {b.tokenType ? ` (${b.tokenType})` : ''}
+              </span>
+              <span className="font-mono">{b.remainingPercent}%</span>
+            </div>
+            {((b.remainingAmount !== null && b.remainingAmount !== undefined) || b.resetTime) && (
+              <div className="flex justify-between gap-4 text-[11px] text-muted-foreground">
+                <span>
+                  {b.remainingAmount !== null && b.remainingAmount !== undefined
+                    ? `${b.remainingAmount.toLocaleString()} remaining`
+                    : ''}
+                </span>
+                <span>{formatAbsoluteResetTime(b.resetTime) ?? ''}</span>
+              </div>
+            )}
           </div>
         ))}
-        <ResetTimeIndicator resetTime={resetTime} />
+        {!hasBucketResetTime && <ResetTimeIndicator resetTime={resetTime} />}
       </div>
     );
   }
