@@ -116,17 +116,18 @@ describe('HttpsTunnelProxy', () => {
       });
 
       const port = await tunnel.start();
+      const net = await import('net');
+      const socket = new net.Socket();
 
-      // Try to connect - should work on localhost
-      const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
-        const req = http.get(`http://127.0.0.1:${port}/test`, resolve);
-        req.on('error', reject);
-        req.setTimeout(1000);
-      }).catch((err) => err);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1', () => {
+          socket.end();
+          resolve();
+        });
+      });
 
-      // We expect an error because there's no upstream, but connection should be accepted
-      // If binding failed, we'd get ECONNREFUSED before any response
-      expect(response).toBeDefined();
+      expect(tunnel.getPort()).toBe(port);
     });
   });
 

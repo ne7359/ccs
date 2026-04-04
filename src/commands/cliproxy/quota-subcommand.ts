@@ -638,15 +638,25 @@ function displayGeminiCliQuotaSection(
     if (quota.projectId) {
       console.log(`    Project: ${dim(quota.projectId)}`);
     }
+    if (quota.tierLabel) {
+      console.log(`    Tier: ${dim(quota.tierLabel)}`);
+    }
+    if (quota.creditBalance !== null && quota.creditBalance !== undefined) {
+      console.log(`    Credits: ${dim(quota.creditBalance.toLocaleString())}`);
+    }
 
     for (const bucket of quota.buckets) {
       const bar = formatQuotaBar(bucket.remainingPercent);
       const tokenLabel = bucket.tokenType ? dim(` (${bucket.tokenType})`) : '';
+      const amountLabel =
+        bucket.remainingAmount !== null && bucket.remainingAmount !== undefined
+          ? dim(` ${bucket.remainingAmount.toLocaleString()} left`)
+          : '';
       const resetLabel = bucket.resetTime
         ? dim(` Resets ${formatResetTimeISO(bucket.resetTime)}`)
         : '';
       console.log(
-        `    ${bucket.label.padEnd(24)} ${bar} ${bucket.remainingPercent.toFixed(0)}%${tokenLabel}${resetLabel}`
+        `    ${bucket.label.padEnd(24)} ${bar} ${bucket.remainingPercent.toFixed(0)}%${tokenLabel}${amountLabel}${resetLabel}`
       );
     }
     console.log('');

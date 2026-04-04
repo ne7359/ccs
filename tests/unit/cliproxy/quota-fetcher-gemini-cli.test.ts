@@ -12,6 +12,7 @@ import { getCapturedFetchRequests, mockFetch, restoreFetch } from '../../mocks';
 
 describe('Gemini CLI Quota Fetcher', () => {
   const GEMINI_QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota';
+  const GEMINI_CODE_ASSIST_URL = 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist';
   const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
   let tempHome: string;
   let originalCcsHome: string | undefined;
@@ -159,13 +160,27 @@ describe('Gemini CLI Quota Fetcher', () => {
 
       const flashBucket = buckets.find((b) => b.label === 'Gemini Flash Series');
       expect(flashBucket).toBeDefined();
-      // Takes minimum remaining fraction (0.6)
-      expect(flashBucket!.remainingFraction).toBe(0.6);
-      expect(flashBucket!.remainingPercent).toBe(60);
+      // Uses the preferred representative model when it exists
+      expect(flashBucket!.remainingFraction).toBe(0.8);
+      expect(flashBucket!.remainingPercent).toBe(80);
 
       const proBucket = buckets.find((b) => b.label === 'Gemini Pro Series');
       expect(proBucket).toBeDefined();
       expect(proBucket!.remainingFraction).toBe(0.9);
+    });
+
+    it('should split Flash Lite into its own bucket', () => {
+      const rawBuckets = [
+        { model_id: 'gemini-2.5-flash-lite', remaining_fraction: 1 },
+        { model_id: 'gemini-2.5-flash', remaining_fraction: 0.7 },
+      ];
+
+      const buckets = buildGeminiCliBuckets(rawBuckets);
+
+      expect(buckets.map((bucket) => bucket.label)).toEqual([
+        'Gemini Flash Lite Series',
+        'Gemini Flash Series',
+      ]);
     });
 
     it('should recognize Gemini 3.1 preview IDs during the rollout', () => {
@@ -242,13 +257,13 @@ describe('Gemini CLI Quota Fetcher', () => {
       expect(buckets[0].remainingFraction).toBe(0.9);
     });
 
-    it('should categorize unknown models as "other"', () => {
+    it('should preserve unknown model IDs instead of collapsing them', () => {
       const rawBuckets = [{ model_id: 'unknown-model-xyz', remaining_fraction: 0.7 }];
 
       const buckets = buildGeminiCliBuckets(rawBuckets);
 
       expect(buckets).toHaveLength(1);
-      expect(buckets[0].label).toBe('Other Models');
+      expect(buckets[0].label).toBe('unknown-model-xyz');
     });
 
     it('should handle empty buckets array', () => {
@@ -268,7 +283,7 @@ describe('Gemini CLI Quota Fetcher', () => {
       expect(buckets[0].remainingFraction).toBe(0.8);
     });
 
-    it('should keep earliest reset time when merging', () => {
+    it('should keep the representative model reset time when it exists', () => {
       const rawBuckets = [
         {
           model_id: 'gemini-3-flash-preview',
@@ -279,6 +294,26 @@ describe('Gemini CLI Quota Fetcher', () => {
           model_id: 'gemini-2.5-flash',
           remaining_fraction: 0.6,
           reset_time: '2026-01-30T10:00:00Z', // Earlier
+        },
+      ];
+
+      const buckets = buildGeminiCliBuckets(rawBuckets);
+
+      const flashBucket = buckets.find((b) => b.label === 'Gemini Flash Series');
+      expect(flashBucket!.resetTime).toBe('2026-01-30T12:00:00Z');
+    });
+
+    it('should keep earliest reset time when the representative model is missing', () => {
+      const rawBuckets = [
+        {
+          model_id: 'gemini-3.1-flash-preview',
+          remaining_fraction: 0.8,
+          reset_time: '2026-01-30T12:00:00Z',
+        },
+        {
+          model_id: 'gemini-2.5-flash',
+          remaining_fraction: 0.6,
+          reset_time: '2026-01-30T10:00:00Z',
         },
       ];
 
@@ -308,6 +343,147 @@ describe('Gemini CLI Quota Fetcher', () => {
       const flashBucket = buckets.find((b) => b.label === 'Gemini Flash Series');
       expect(flashBucket!.modelIds).toContain('gemini-3-flash-preview');
       expect(flashBucket!.modelIds).toContain('gemini-2.5-flash');
+    });
+  });
+
+  describe('fetchGeminiCliQuota success metadata', () => {
+    it('merges tier and credit metadata into successful quota responses', async () => {
+      writeActiveGeminiAccount('success@example.com');
+
+      mockFetch([
+        {
+          url: GEMINI_QUOTA_URL,
+          method: 'POST',
+          status: 200,
+          response: {
+            buckets: [
+              {
+                model_id: 'gemini-2.5-flash-lite',
+                remaining_fraction: 1,
+                remaining_amount: 100,
+                reset_time: '2026-01-30T09:00:00Z',
+              },
+              {
+                model_id: 'gemini-3-flash-preview',
+                remaining_fraction: 0.82,
+                remaining_amount: 82,
+                reset_time: '2026-01-30T14:00:00Z',
+              },
+              {
+                model_id: 'gemini-2.5-flash',
+                remaining_fraction: 0.4,
+                remaining_amount: 40,
+                reset_time: '2026-01-30T10:00:00Z',
+              },
+              {
+                model_id: 'gemini-3.1-pro-preview',
+                remaining_fraction: 0.91,
+                remaining_amount: 91,
+                reset_time: '2026-01-30T15:00:00Z',
+              },
+            ],
+          },
+        },
+        {
+          url: GEMINI_CODE_ASSIST_URL,
+          method: 'POST',
+          status: 200,
+          response: {
+            paidTier: {
+              id: 'g1-pro-tier',
+              availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: 12 }],
+            },
+          },
+        },
+      ]);
+
+      const result = await fetchGeminiCliQuota('success@example.com');
+
+      expect(result.success).toBe(true);
+      expect(result.tierLabel).toBe('Pro');
+      expect(result.tierId).toBe('g1-pro-tier');
+      expect(result.creditBalance).toBe(12);
+      expect(result.buckets.map((bucket) => bucket.label)).toEqual([
+        'Gemini Flash Lite Series',
+        'Gemini Flash Series',
+        'Gemini Pro Series',
+      ]);
+      expect(result.buckets[0].remainingAmount).toBe(100);
+
+      const flashBucket = result.buckets.find((bucket) => bucket.label === 'Gemini Flash Series');
+      expect(flashBucket?.remainingPercent).toBe(82);
+      expect(flashBucket?.remainingAmount).toBe(82);
+      expect(flashBucket?.resetTime).toBe('2026-01-30T14:00:00Z');
+
+      const requestUrls = getCapturedFetchRequests().map((request) => request.url);
+      expect(requestUrls).toContain(GEMINI_QUOTA_URL);
+      expect(requestUrls).toContain(GEMINI_CODE_ASSIST_URL);
+    });
+
+    it('keeps base quota success when supplementary metadata fails', async () => {
+      writeActiveGeminiAccount('supplementary-failure@example.com');
+
+      mockFetch([
+        {
+          url: GEMINI_QUOTA_URL,
+          method: 'POST',
+          status: 200,
+          response: {
+            buckets: [{ model_id: 'gemini-3-flash-preview', remaining_fraction: 0.75 }],
+          },
+        },
+        {
+          url: GEMINI_CODE_ASSIST_URL,
+          method: 'POST',
+          status: 503,
+          response: { error: { message: 'Service unavailable' } },
+        },
+      ]);
+
+      const result = await fetchGeminiCliQuota('supplementary-failure@example.com');
+
+      expect(result.success).toBe(true);
+      expect(result.tierLabel).toBeNull();
+      expect(result.tierId).toBeNull();
+      expect(result.creditBalance).toBeNull();
+      expect(result.buckets[0].remainingPercent).toBe(75);
+    });
+
+    it('keeps base quota success when supplementary metadata throws a network error', async () => {
+      writeActiveGeminiAccount('supplementary-network@example.com');
+
+      mockFetch([
+        {
+          url: GEMINI_QUOTA_URL,
+          method: 'POST',
+          status: 200,
+          response: {
+            buckets: [{ model_id: 'gemini-3-flash-preview', remaining_fraction: 0.75 }],
+          },
+        },
+      ]);
+
+      const mockedFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (url === GEMINI_CODE_ASSIST_URL) {
+          throw new TypeError('supplementary network down');
+        }
+        return mockedFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const result = await fetchGeminiCliQuota('supplementary-network@example.com');
+
+        expect(result.success).toBe(true);
+        expect(result.tierLabel).toBeNull();
+        expect(result.tierId).toBeNull();
+        expect(result.creditBalance).toBeNull();
+        expect(result.buckets[0].remainingPercent).toBe(75);
+      } finally {
+        globalThis.fetch = mockedFetch;
+      }
     });
   });
 
