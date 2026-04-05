@@ -1,3 +1,59 @@
+## [7.66.0](https://github.com/kaitranntt/ccs/compare/v7.65.3...v7.66.0) (2026-04-05)
+
+### Features
+
+* **accounts:** clarify continuity and resume guidance ([57d6a44](https://github.com/kaitranntt/ccs/commit/57d6a44493d1003970afcf53103475cf1ed84d2e)), closes [#904](https://github.com/kaitranntt/ccs/issues/904)
+* **auth:** add resume lane diagnostics and recovery ([2830c2a](https://github.com/kaitranntt/ccs/commit/2830c2ae9e6b57ca228d414fb166c83139c205e2))
+* **cliproxy:** enrich gemini quota metadata ([a762d8d](https://github.com/kaitranntt/ccs/commit/a762d8dda0fa1c9c3d0d5f8bfa5eae56a0e2bb69))
+* **cli:** refresh help and shell completion UX ([24ba2ab](https://github.com/kaitranntt/ccs/commit/24ba2abe10a59e907978dfb7335554c58a5b12e4))
+* **dashboard:** show all provider presets by default in Create API Profile modal ([f61cc87](https://github.com/kaitranntt/ccs/commit/f61cc87aa2c3e9b54e07c32a04f503cdfd336ee4)), closes [#892](https://github.com/kaitranntt/ccs/issues/892)
+* **image-analysis:** add provider-backed runtime ([813b2dd](https://github.com/kaitranntt/ccs/commit/813b2dd4d054a5c4cb783cfeb3c7d2d65abc4a0c))
+* **ui:** show richer gemini quota details ([4c44042](https://github.com/kaitranntt/ccs/commit/4c440423758814e62169779276dbb02f446df831))
+
+### Bug Fixes
+
+* **auth:** harden delayed oauth token registration ([01313a5](https://github.com/kaitranntt/ccs/commit/01313a5a8e6dcaba2331865cd5999d35f7be6334))
+* **auth:** keep resume lane warning non-blocking ([1b3528f](https://github.com/kaitranntt/ccs/commit/1b3528f61a91a877f55e2f29e4a3ed7a924f6acb))
+* **auth:** wait for polled oauth token persistence ([e2e5d99](https://github.com/kaitranntt/ccs/commit/e2e5d994658a869f6f1baf17997f78b2aa406c07))
+* **ci:** restore cursor image analyzer hook import ([748fde6](https://github.com/kaitranntt/ccs/commit/748fde659982450b86b2fbd7b1eff998830234a2))
+* classify DuckDuckGo non-result HTML as failure ([a33d3f4](https://github.com/kaitranntt/ccs/commit/a33d3f4481a94e70351b9bb9600521c562578b06))
+* **completion:** close shell completion review gaps ([0da7598](https://github.com/kaitranntt/ccs/commit/0da7598a843b4653f9577497e4fd6cd9e99b98fe))
+* **completion:** fail closed on backend errors ([ffe3082](https://github.com/kaitranntt/ccs/commit/ffe3082528779c9fc20822d0a22b4a3753f648fc))
+* **cursor:** address review feedback and translator edge cases ([27f6a67](https://github.com/kaitranntt/ccs/commit/27f6a675be6f97d6ae41e2729f2146c9b5c8ad9f))
+* **cursor:** harden runtime follow-up regressions ([f7ddad6](https://github.com/kaitranntt/ccs/commit/f7ddad6c19353ae3b32e82541526a2149160ee36))
+* **cursor:** make bare cursor command useful and harden tool-result translation ([d7b907e](https://github.com/kaitranntt/ccs/commit/d7b907ed9fb16668694e09cc43ed8eada67a4a2a))
+* **cursor:** route bare cursor through runtime profile ([2d67f40](https://github.com/kaitranntt/ccs/commit/2d67f40175705eafba2476256f171413696a89a2))
+* **cursor:** tear down oversized daemon model responses ([e3074ae](https://github.com/kaitranntt/ccs/commit/e3074ae60e02786a6fb790f9a42d2dbcf0258866))
+* **dashboard:** bootstrap cliproxy control panel session ([5432163](https://github.com/kaitranntt/ccs/commit/5432163c8fd9e4afb731277e18a5d55be4319436))
+* **dashboard:** clear control panel bootstrap state ([68417c0](https://github.com/kaitranntt/ccs/commit/68417c05a3693ecfaa627181ab1ed9d04e422743))
+* **dashboard:** scope auth monitor summary by provider ([5746e43](https://github.com/kaitranntt/ccs/commit/5746e43a36a40e9332709f6234b5d8dcdef183fa))
+* **image-analysis:** handle installer lock contention ([afc8b0b](https://github.com/kaitranntt/ccs/commit/afc8b0bb6ea51dd6432bd0f248a4043ab86e2311))
+* **image-analysis:** harden runtime and provisioning ([77b488f](https://github.com/kaitranntt/ccs/commit/77b488f8b185e2427a3777f12bc3ed2d8f8cc522))
+* **image-analysis:** stabilize mcp config locking ([0347f5a](https://github.com/kaitranntt/ccs/commit/0347f5a973577c0888d9013babbc1fa98304c459))
+
+### Documentation
+
+* add community projects section and fix header link ([dc56e55](https://github.com/kaitranntt/ccs/commit/dc56e55f5280fa262646e6231938dbc41d8cff55))
+* **image-analysis:** document managed runtime flow ([6d1c895](https://github.com/kaitranntt/ccs/commit/6d1c8957212cd0a7412ca0e6a888ce70c9adbdfb))
+* **readme:** broaden CCS runtime positioning ([0e37033](https://github.com/kaitranntt/ccs/commit/0e37033f339b79b7294887ae7293b6d12d9fdfdf))
+* **readme:** preserve opencode contributor guidance ([217e71f](https://github.com/kaitranntt/ccs/commit/217e71f9f8bfbe07202d799fe74d581963fe0f1a))
+* **roadmap:** note CLI help and completion refresh ([86b30eb](https://github.com/kaitranntt/ccs/commit/86b30eb9f50bb6fade97ddca604f5e198416fb4d))
+
+### Code Refactoring
+
+* **accounts:** consolidate continuity guidance layout ([d9f78ad](https://github.com/kaitranntt/ccs/commit/d9f78ad490ccff3bab4138ef9d4dbbadfde88611)), closes [#904](https://github.com/kaitranntt/ccs/issues/904)
+* **cli:** slim cursor completion imports ([3dcf879](https://github.com/kaitranntt/ccs/commit/3dcf879c9f2ec681f58f3be7a3c13deda666b511))
+
+### Performance Improvements
+
+* **cliproxy:** overlap gemini quota metadata fetches ([c9bbc58](https://github.com/kaitranntt/ccs/commit/c9bbc58dd4de1c116f862119c8f9278e22ff5081))
+
+### Tests
+
+* **cli:** isolate root router completion coverage ([2d5bda7](https://github.com/kaitranntt/ccs/commit/2d5bda7f769a23db3ac5df5d2a56c19113dd996c))
+* **cliproxy:** stabilize tunnel localhost binding check ([71c4b18](https://github.com/kaitranntt/ccs/commit/71c4b184f9fad612f3a133b67cd9d7dec895c855))
+* **image-analysis:** cover runtime auth and fallback ([f379a40](https://github.com/kaitranntt/ccs/commit/f379a4001f768cb7885fbffb322e63d678244aec))
+
 ## [7.65.3](https://github.com/kaitranntt/ccs/compare/v7.65.2...v7.65.3) (2026-04-02)
 
 ### Hotfixes
