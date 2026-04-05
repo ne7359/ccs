@@ -191,6 +191,21 @@ export function validateManualCallbackUrl(callbackUrl: string, authUrl: string):
   return null;
 }
 
+export function getKiroBuilderIdSelectionInput(output: string): string | null {
+  const promptMatch = /Select login method/i.exec(output);
+  if (!promptMatch || promptMatch.index === undefined) {
+    return null;
+  }
+
+  const promptWindow = output.slice(promptMatch.index, promptMatch.index + 600);
+  const optionMatch = /(?:^|\n)\s*(\d+)\s*[\).:-]?\s*(?:AWS\s+)?Builder ID\b/im.exec(promptWindow);
+  if (!optionMatch) {
+    return null;
+  }
+
+  return `${optionMatch[1]}\n`;
+}
+
 async function promptManualCallbackUrl(
   displayName: string,
   state: ProcessState,
@@ -318,8 +333,16 @@ async function handleStdout(
     state.accumulatedOutput.includes('Select login method')
   ) {
     state.kiroMethodSelectionHandled = true;
-    authProcess.stdin?.write('1\n');
-    log('Auto-selected Kiro Builder ID flow');
+    const builderIdSelection = getKiroBuilderIdSelectionInput(state.accumulatedOutput);
+    if (!builderIdSelection) {
+      console.log(fail('Unable to auto-select Kiro Builder ID from the upstream login menu.'));
+      console.log('    The upstream Kiro prompt format may have changed.');
+      killWithEscalation(authProcess);
+      return;
+    }
+
+    authProcess.stdin?.write(builderIdSelection);
+    log(`Auto-selected Kiro Builder ID flow (${builderIdSelection.trim()})`);
   }
 
   // Parse project list when available

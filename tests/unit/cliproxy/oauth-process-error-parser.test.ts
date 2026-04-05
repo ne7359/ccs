@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   extractLikelyAuthFailureFromStderr,
   getExpectedLocalCallback,
+  getKiroBuilderIdSelectionInput,
   validateManualCallbackUrl,
 } from '../../../src/cliproxy/auth/oauth-process';
 
@@ -82,5 +83,37 @@ describe('oauth-process manual callback validation', () => {
         authUrl
       )
     ).toContain('state does not match');
+  });
+});
+
+describe('oauth-process Kiro Builder ID menu parsing', () => {
+  it('selects Builder ID when it is the first option', () => {
+    const output = `
+Select login method
+1. Builder ID
+2. IAM Identity Center
+`;
+
+    expect(getKiroBuilderIdSelectionInput(output)).toBe('1\n');
+  });
+
+  it('selects the Builder ID option even when upstream reorders the menu', () => {
+    const output = `
+Select login method
+1. IAM Identity Center
+2. AWS Builder ID
+`;
+
+    expect(getKiroBuilderIdSelectionInput(output)).toBe('2\n');
+  });
+
+  it('returns null when the Builder ID option is not present in the prompt window', () => {
+    const output = `
+Select login method
+1. IAM Identity Center
+2. Google
+`;
+
+    expect(getKiroBuilderIdSelectionInput(output)).toBeNull();
   });
 });
