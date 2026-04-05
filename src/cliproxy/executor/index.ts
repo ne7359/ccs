@@ -65,7 +65,14 @@ import {
 } from '../../utils/image-analysis';
 import { loadOrCreateUnifiedConfig, getThinkingConfig } from '../../config/unified-config-loader';
 import { HttpsTunnelProxy } from '../https-tunnel-proxy';
-import { isKiroAuthMethod, KiroAuthMethod, normalizeKiroAuthMethod } from '../auth/auth-types';
+import {
+  isKiroAuthMethod,
+  isKiroIDCFlow,
+  KiroAuthMethod,
+  KiroIDCFlow,
+  normalizeKiroAuthMethod,
+  normalizeKiroIDCFlow,
+} from '../auth/auth-types';
 import { resolveProfileContinuityInheritance } from '../../auth/profile-continuity-inheritance';
 
 // Import modular components
@@ -344,22 +351,111 @@ export async function execClaudeWithCLIProxy(
     const rawMethod = argsWithoutProxy[kiroMethodIdx + 1];
     if (!rawMethod || rawMethod.startsWith('-')) {
       console.error(fail('--kiro-auth-method requires a value'));
-      console.error('    Supported values: aws, aws-authcode, google, github');
+      console.error('    Supported values: aws, aws-authcode, google, github, idc');
       process.exitCode = 1;
       return;
     }
     const normalized = rawMethod.trim().toLowerCase();
     if (!isKiroAuthMethod(normalized)) {
       console.error(fail(`Invalid --kiro-auth-method value: ${rawMethod}`));
-      console.error('    Supported values: aws, aws-authcode, google, github');
+      console.error('    Supported values: aws, aws-authcode, google, github, idc');
       process.exitCode = 1;
       return;
     }
     kiroAuthMethod = normalizeKiroAuthMethod(normalized);
   }
 
+  let kiroIDCStartUrl: string | undefined;
+  const kiroIDCStartUrlIdx = argsWithoutProxy.indexOf('--kiro-idc-start-url');
+  if (
+    kiroIDCStartUrlIdx !== -1 &&
+    argsWithoutProxy[kiroIDCStartUrlIdx + 1] &&
+    !argsWithoutProxy[kiroIDCStartUrlIdx + 1].startsWith('-')
+  ) {
+    kiroIDCStartUrl = argsWithoutProxy[kiroIDCStartUrlIdx + 1].trim();
+  } else if (kiroIDCStartUrlIdx !== -1) {
+    console.error(fail('--kiro-idc-start-url requires a value'));
+    process.exitCode = 1;
+    return;
+  }
+
+  let kiroIDCRegion: string | undefined;
+  const kiroIDCRegionIdx = argsWithoutProxy.indexOf('--kiro-idc-region');
+  if (
+    kiroIDCRegionIdx !== -1 &&
+    argsWithoutProxy[kiroIDCRegionIdx + 1] &&
+    !argsWithoutProxy[kiroIDCRegionIdx + 1].startsWith('-')
+  ) {
+    kiroIDCRegion = argsWithoutProxy[kiroIDCRegionIdx + 1].trim();
+  } else if (kiroIDCRegionIdx !== -1) {
+    console.error(fail('--kiro-idc-region requires a value'));
+    process.exitCode = 1;
+    return;
+  }
+
+  let kiroIDCFlow: KiroIDCFlow | undefined;
+  const kiroIDCFlowIdx = argsWithoutProxy.indexOf('--kiro-idc-flow');
+  if (kiroIDCFlowIdx !== -1) {
+    const rawFlow = argsWithoutProxy[kiroIDCFlowIdx + 1];
+    if (!rawFlow || rawFlow.startsWith('-')) {
+      console.error(fail('--kiro-idc-flow requires a value'));
+      console.error('    Supported values: authcode, device');
+      process.exitCode = 1;
+      return;
+    }
+    const normalized = rawFlow.trim().toLowerCase();
+    if (!isKiroIDCFlow(normalized)) {
+      console.error(fail(`Invalid --kiro-idc-flow value: ${rawFlow}`));
+      console.error('    Supported values: authcode, device');
+      process.exitCode = 1;
+      return;
+    }
+    kiroIDCFlow = normalizeKiroIDCFlow(normalized);
+  }
+
   if (kiroAuthMethod && provider !== 'kiro' && !compositeProviders.includes('kiro')) {
     console.error(fail('--kiro-auth-method is only valid for ccs kiro'));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (
+    (kiroIDCStartUrl || kiroIDCRegion || kiroIDCFlow) &&
+    provider !== 'kiro' &&
+    !compositeProviders.includes('kiro')
+  ) {
+    console.error(
+      fail(
+        '--kiro-idc-start-url, --kiro-idc-region, and --kiro-idc-flow are only valid for ccs kiro'
+      )
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!kiroAuthMethod && (kiroIDCStartUrl || kiroIDCRegion || kiroIDCFlow)) {
+    kiroAuthMethod = 'idc';
+  }
+
+  if (kiroAuthMethod === 'idc' && !kiroIDCStartUrl) {
+    console.error(fail('Kiro IDC login requires --kiro-idc-start-url'));
+    console.error(
+      '    Example: ccs kiro --auth --kiro-auth-method idc --kiro-idc-start-url https://d-xxx.awsapps.com/start'
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (
+    kiroAuthMethod &&
+    kiroAuthMethod !== 'idc' &&
+    (kiroIDCStartUrl || kiroIDCRegion || kiroIDCFlow)
+  ) {
+    console.error(
+      fail(
+        '--kiro-idc-start-url, --kiro-idc-region, and --kiro-idc-flow require --kiro-auth-method idc'
+      )
+    );
     process.exitCode = 1;
     return;
   }
@@ -533,6 +629,9 @@ export async function execClaudeWithCLIProxy(
       verbose,
       import: true,
       ...(kiroAuthMethod ? { kiroMethod: kiroAuthMethod } : {}),
+      ...(kiroIDCStartUrl ? { kiroIDCStartUrl } : {}),
+      ...(kiroIDCRegion ? { kiroIDCRegion } : {}),
+      ...(kiroIDCFlow ? { kiroIDCFlow } : {}),
       ...(setNickname ? { nickname: setNickname } : {}),
     });
     if (!authSuccess) {
@@ -597,6 +696,9 @@ export async function execClaudeWithCLIProxy(
             add: addAccount,
             ...(acceptAgyRisk ? { acceptAgyRisk: true } : {}),
             ...(kiroAuthMethod && p === 'kiro' ? { kiroMethod: kiroAuthMethod } : {}),
+            ...(kiroIDCStartUrl && p === 'kiro' ? { kiroIDCStartUrl } : {}),
+            ...(kiroIDCRegion && p === 'kiro' ? { kiroIDCRegion } : {}),
+            ...(kiroIDCFlow && p === 'kiro' ? { kiroIDCFlow } : {}),
             ...(forceHeadless ? { headless: true } : {}),
             ...(setNickname ? { nickname: setNickname } : {}),
             ...(noIncognito ? { noIncognito: true } : {}),
@@ -639,6 +741,9 @@ export async function execClaudeWithCLIProxy(
         add: addAccount,
         ...(acceptAgyRisk ? { acceptAgyRisk: true } : {}),
         ...(kiroAuthMethod ? { kiroMethod: kiroAuthMethod } : {}),
+        ...(kiroIDCStartUrl ? { kiroIDCStartUrl } : {}),
+        ...(kiroIDCRegion ? { kiroIDCRegion } : {}),
+        ...(kiroIDCFlow ? { kiroIDCFlow } : {}),
         ...(forceHeadless ? { headless: true } : {}),
         ...(setNickname ? { nickname: setNickname } : {}),
         ...(noIncognito ? { noIncognito: true } : {}),
@@ -1052,6 +1157,9 @@ export async function execClaudeWithCLIProxy(
     '--use',
     '--nickname',
     '--kiro-auth-method',
+    '--kiro-idc-start-url',
+    '--kiro-idc-region',
+    '--kiro-idc-flow',
     '--thinking',
     '--effort',
     '--1m',
@@ -1073,6 +1181,9 @@ export async function execClaudeWithCLIProxy(
       argsWithoutProxy[idx - 1] === '--use' ||
       argsWithoutProxy[idx - 1] === '--nickname' ||
       argsWithoutProxy[idx - 1] === '--kiro-auth-method' ||
+      argsWithoutProxy[idx - 1] === '--kiro-idc-start-url' ||
+      argsWithoutProxy[idx - 1] === '--kiro-idc-region' ||
+      argsWithoutProxy[idx - 1] === '--kiro-idc-flow' ||
       argsWithoutProxy[idx - 1] === '--thinking' ||
       argsWithoutProxy[idx - 1] === '--effort'
     )

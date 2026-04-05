@@ -262,6 +262,9 @@ export function getStartUrlUnsupportedReason(
 ): string | null {
   if (provider === 'kiro') {
     const kiroMethod = options?.kiroMethod ?? normalizeKiroAuthMethod();
+    if (kiroMethod === 'idc') {
+      return "Kiro method 'idc' uses CLI auth flow. Use /api/cliproxy/auth/kiro/start instead.";
+    }
     if (kiroMethod === 'aws-authcode') {
       return "Kiro method 'aws-authcode' uses CLI auth flow. Use /api/cliproxy/auth/kiro/start instead.";
     }
@@ -615,7 +618,7 @@ router.post('/:provider/start', async (req: Request, res: Response): Promise<voi
 
   if (provider === 'kiro' && invalidKiroMethod) {
     res.status(400).json({
-      error: 'Invalid kiroMethod. Supported: aws, aws-authcode, google, github',
+      error: 'Invalid kiroMethod. Supported: aws, aws-authcode, google, github, idc',
       code: 'INVALID_KIRO_METHOD',
     });
     return;
@@ -828,7 +831,7 @@ router.post('/:provider/start-url', async (req: Request, res: Response): Promise
 
   if (provider === 'kiro' && invalidKiroMethod) {
     res.status(400).json({
-      error: 'Invalid kiroMethod. Supported: aws, aws-authcode, google, github',
+      error: 'Invalid kiroMethod. Supported: aws, aws-authcode, google, github, idc',
       code: 'INVALID_KIRO_METHOD',
     });
     return;
@@ -867,9 +870,10 @@ router.post('/:provider/start-url', async (req: Request, res: Response): Promise
   try {
     const authUrlProvider =
       CLIPROXY_AUTH_URL_PROVIDER_MAP[provider as CLIProxyProvider] || provider;
+    const kiroManagementMethod = provider === 'kiro' ? toKiroManagementMethod(kiroMethod) : null;
     const kiroQuery =
-      provider === 'kiro'
-        ? `&method=${encodeURIComponent(toKiroManagementMethod(kiroMethod))}`
+      provider === 'kiro' && kiroManagementMethod
+        ? `&method=${encodeURIComponent(kiroManagementMethod)}`
         : '';
 
     // Call CLIProxyAPI to start OAuth and get auth URL

@@ -21,7 +21,9 @@ import {
 import {
   DEFAULT_KIRO_AUTH_METHOD,
   getKiroCallbackPort,
+  getKiroCLIAuthArgs,
   getKiroCLIAuthFlag,
+  normalizeKiroIDCFlow,
   normalizeKiroAuthMethod,
   OAUTH_CALLBACK_PORTS as AUTH_CALLBACK_PORTS,
   toKiroManagementMethod,
@@ -136,20 +138,30 @@ describe('provider-capabilities', () => {
     expect(DEFAULT_KIRO_AUTH_METHOD).toBe('aws');
     expect(normalizeKiroAuthMethod()).toBe('aws');
     expect(normalizeKiroAuthMethod('GOOGLE')).toBe('google');
+    expect(normalizeKiroAuthMethod('IDC')).toBe('idc');
     expect(normalizeKiroAuthMethod('not-valid')).toBe('aws');
+    expect(normalizeKiroIDCFlow()).toBe('authcode');
+    expect(normalizeKiroIDCFlow('DEVICE')).toBe('device');
 
     expect(getKiroCLIAuthFlag('aws')).toBe('--kiro-aws-login');
     expect(getKiroCLIAuthFlag('aws-authcode')).toBe('--kiro-aws-authcode');
     expect(getKiroCLIAuthFlag('google')).toBe('--kiro-google-login');
+    expect(getKiroCLIAuthFlag('idc')).toBe('--kiro-idc-login');
+    expect(getKiroCLIAuthArgs('idc', { idcStartUrl: 'https://d-123.awsapps.com/start' })).toEqual(
+      ['--kiro-idc-login', '--kiro-idc-start-url', 'https://d-123.awsapps.com/start', '--kiro-idc-flow', 'authcode']
+    );
 
     expect(getKiroCallbackPort('aws')).toBeNull();
     expect(getKiroCallbackPort('google')).toBe(9876);
     expect(getKiroCallbackPort('github')).toBe(9876);
     expect(getKiroCallbackPort('aws-authcode')).toBe(9876);
+    expect(getKiroCallbackPort('idc')).toBe(9876);
+    expect(getKiroCallbackPort('idc', { idcFlow: 'device' })).toBeNull();
 
     expect(toKiroManagementMethod('aws')).toBe('aws');
     expect(toKiroManagementMethod('aws-authcode')).toBe('aws');
     expect(toKiroManagementMethod('google')).toBe('google');
     expect(toKiroManagementMethod('github')).toBe('github');
+    expect(toKiroManagementMethod('idc')).toBeNull();
   });
 });

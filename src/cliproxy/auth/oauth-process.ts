@@ -22,7 +22,7 @@ import {
   type GCloudProject,
   type ProjectSelectionPrompt,
 } from '../project-selection-handler';
-import { ProviderOAuthConfig } from './auth-types';
+import { KiroAuthMethod, ProviderOAuthConfig } from './auth-types';
 import { getTimeoutTroubleshooting, showStep } from './environment-detector';
 import { isAuthenticated, registerAccountFromToken } from './token-manager';
 import {
@@ -51,6 +51,9 @@ export interface OAuthProcessOptions {
   isCLI: boolean;
   nickname?: string;
   expectedAccountId?: string;
+  authFlowType?: 'device_code' | 'authorization_code';
+  kiroMethod?: KiroAuthMethod;
+  manualCallback?: boolean;
 }
 
 /** Internal state for OAuth process */
@@ -66,6 +69,8 @@ interface ProcessState {
   deviceCodeDisplayed: boolean;
   /** The user code to enter at verification URL */
   userCode: string | null;
+  kiroMethodSelectionHandled: boolean;
+  manualCallbackPrompted: boolean;
 }
 
 /**
@@ -106,6 +111,92 @@ async function handleProjectSelection(
   }
 }
 
+function resolveAuthFlowType(options: OAuthProcessOptions): 'device_code' | 'authorization_code' {
+  return options.authFlowType || OAUTH_FLOW_TYPES[options.provider] || 'authorization_code';
+}
+
+async function promptManualCallbackUrl(displayName: string): Promise<string | null> {
+  const readline = await import('readline');
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise<string | null>((resolve) => {
+    let settled = false;
+
+    rl.on('close', () => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+    });
+
+    console.log('');
+    console.log(info(`${displayName} is waiting for the OAuth callback.`));
+    console.log('Paste the full callback URL after you finish the login in your browser.');
+    rl.question('> ', (answer) => {
+      settled = true;
+      rl.close();
+      resolve(answer.trim() || null);
+    });
+  });
+}
+
+async function replayManualCallback(
+  oauthConfig: ProviderOAuthConfig,
+  authProcess: ChildProcess,
+  output: string,
+  verbose: boolean
+): Promise<boolean> {
+  if (!output.includes('http://') && !output.includes('https://')) {
+    return false;
+  }
+
+  const callbackUrl = await promptManualCallbackUrl(oauthConfig.displayName);
+  if (!callbackUrl) {
+    console.log(info('Cancelled'));
+    killWithEscalation(authProcess);
+    return true;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(callbackUrl);
+  } catch {
+    console.log(fail('Invalid callback URL format'));
+    killWithEscalation(authProcess);
+    return true;
+  }
+
+  if (!parsed.searchParams.get('code')) {
+    console.log(fail('Invalid callback URL: missing code parameter'));
+    killWithEscalation(authProcess);
+    return true;
+  }
+
+  console.log(info('Replaying callback to the local auth server...'));
+
+  try {
+    const response = await fetch(callbackUrl);
+    if (!response.ok && response.status >= 400) {
+      console.log(fail(`OAuth callback failed with status ${response.status}`));
+      killWithEscalation(authProcess);
+      return true;
+    }
+    console.log(ok('Callback submitted. Waiting for token exchange...'));
+  } catch (error) {
+    if (verbose) {
+      console.log(fail(`Failed to replay callback: ${(error as Error).message}`));
+    } else {
+      console.log(fail('Failed to replay callback to the local auth server'));
+    }
+    killWithEscalation(authProcess);
+  }
+
+  return true;
+}
+
 /**
  * Handle stdout data from OAuth process
  */
@@ -119,9 +210,19 @@ async function handleStdout(
   log(`stdout: ${output.trim()}`);
   state.accumulatedOutput += output;
 
-  // H4: Use explicit flow type from OAUTH_FLOW_TYPES instead of null port check
-  const flowType = OAUTH_FLOW_TYPES[options.provider] || 'authorization_code';
+  const flowType = resolveAuthFlowType(options);
   const isDeviceCodeFlow = flowType === 'device_code';
+
+  if (
+    options.provider === 'kiro' &&
+    options.kiroMethod === 'aws' &&
+    !state.kiroMethodSelectionHandled &&
+    state.accumulatedOutput.includes('Select login method')
+  ) {
+    state.kiroMethodSelectionHandled = true;
+    authProcess.stdin?.write('1\n');
+    log('Auto-selected Kiro Builder ID flow');
+  }
 
   // Parse project list when available
   if (isProjectList(state.accumulatedOutput) && state.parsedProjects.length === 0) {
@@ -198,6 +299,11 @@ async function handleStdout(
       console.log(`    ${urlMatch[0]}`);
       console.log('');
       state.urlDisplayed = true;
+
+      if (options.manualCallback && !state.manualCallbackPrompted) {
+        state.manualCallbackPrompted = true;
+        await replayManualCallback(options.oauthConfig, authProcess, urlMatch[0], options.verbose);
+      }
     }
   }
 }
@@ -386,14 +492,17 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
   };
 
   return new Promise<AccountInfo | null>((resolve) => {
-    // H4: Use explicit flow type from OAUTH_FLOW_TYPES instead of null port check
-    const flowType = OAUTH_FLOW_TYPES[provider] || 'authorization_code';
+    const flowType = resolveAuthFlowType(options);
     const isDeviceCodeFlow = flowType === 'device_code';
 
-    // H6: TTY detection - only inherit stdin if TTY available (prevents issues in CI/piped scripts)
-    // Device Code flows may need interactive stdin for email/prompts
-    // Authorization Code flows need piped stdin for project selection
-    const stdinMode = isDeviceCodeFlow && process.stdin.isTTY ? 'inherit' : 'pipe';
+    // Device-code flows can usually inherit stdin, but Kiro's default AWS flow now
+    // prints an intermediate Builder ID vs IDC selector that CCS auto-answers.
+    const stdinMode =
+      isDeviceCodeFlow &&
+      process.stdin.isTTY &&
+      !(provider === 'kiro' && options.kiroMethod === 'aws')
+        ? 'inherit'
+        : 'pipe';
 
     const authProcess = spawn(binaryPath, args, {
       stdio: [stdinMode, 'pipe', 'pipe'],
@@ -424,6 +533,8 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
       sessionId: generateSessionId(),
       deviceCodeDisplayed: false,
       userCode: null,
+      kiroMethodSelectionHandled: false,
+      manualCallbackPrompted: false,
     };
 
     // Register session for cancellation support

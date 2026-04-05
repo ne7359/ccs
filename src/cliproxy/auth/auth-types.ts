@@ -22,13 +22,18 @@ import {
  * - aws-authcode: AWS Builder ID via Authorization Code flow (CLI flag only)
  * - google: Social OAuth via Google
  * - github: Social OAuth via GitHub (management API only)
+ * - idc: IAM Identity Center (IDC) via CLI flags with start URL + region
  */
-export const KIRO_AUTH_METHODS = ['aws', 'aws-authcode', 'google', 'github'] as const;
+export const KIRO_AUTH_METHODS = ['aws', 'aws-authcode', 'google', 'github', 'idc'] as const;
 export type KiroAuthMethod = (typeof KIRO_AUTH_METHODS)[number];
 
 /** CLI binary supports these Kiro methods directly via flags. */
-export const KIRO_CLI_AUTH_METHODS = ['aws', 'aws-authcode', 'google'] as const;
+export const KIRO_CLI_AUTH_METHODS = ['aws', 'aws-authcode', 'google', 'idc'] as const;
 export type KiroCLIAuthMethod = (typeof KIRO_CLI_AUTH_METHODS)[number];
+
+export const KIRO_IDC_FLOWS = ['authcode', 'device'] as const;
+export type KiroIDCFlow = (typeof KIRO_IDC_FLOWS)[number];
+export const DEFAULT_KIRO_IDC_FLOW: KiroIDCFlow = 'authcode';
 
 /** Default Kiro method for CCS UX and AWS Organization support. */
 export const DEFAULT_KIRO_AUTH_METHOD: KiroAuthMethod = 'aws';
@@ -41,18 +46,40 @@ export function isKiroCLIAuthMethod(value: string): value is KiroCLIAuthMethod {
   return KIRO_CLI_AUTH_METHODS.includes(value as KiroCLIAuthMethod);
 }
 
+export function isKiroIDCFlow(value: string): value is KiroIDCFlow {
+  return KIRO_IDC_FLOWS.includes(value as KiroIDCFlow);
+}
+
 export function normalizeKiroAuthMethod(value?: string): KiroAuthMethod {
   if (!value) return DEFAULT_KIRO_AUTH_METHOD;
   const normalized = value.trim().toLowerCase();
   return isKiroAuthMethod(normalized) ? normalized : DEFAULT_KIRO_AUTH_METHOD;
 }
 
-export function isKiroDeviceCodeMethod(method: KiroAuthMethod): boolean {
-  return method === 'aws';
+export function normalizeKiroIDCFlow(value?: string): KiroIDCFlow {
+  if (!value) return DEFAULT_KIRO_IDC_FLOW;
+  const normalized = value.trim().toLowerCase();
+  return isKiroIDCFlow(normalized) ? normalized : DEFAULT_KIRO_IDC_FLOW;
 }
 
-export function getKiroCallbackPort(method: KiroAuthMethod): number | null {
-  return isKiroDeviceCodeMethod(method) ? null : 9876;
+export function isKiroDeviceCodeMethod(
+  method: KiroAuthMethod,
+  options?: { idcFlow?: KiroIDCFlow }
+): boolean {
+  if (method === 'aws') {
+    return true;
+  }
+  if (method === 'idc') {
+    return normalizeKiroIDCFlow(options?.idcFlow) === 'device';
+  }
+  return false;
+}
+
+export function getKiroCallbackPort(
+  method: KiroAuthMethod,
+  options?: { idcFlow?: KiroIDCFlow }
+): number | null {
+  return isKiroDeviceCodeMethod(method, options) ? null : 9876;
 }
 
 export function getKiroCLIAuthFlag(method: KiroCLIAuthMethod): string {
@@ -63,19 +90,49 @@ export function getKiroCLIAuthFlag(method: KiroCLIAuthMethod): string {
       return '--kiro-aws-authcode';
     case 'google':
       return '--kiro-google-login';
+    case 'idc':
+      return '--kiro-idc-login';
   }
+}
+
+export function getKiroCLIAuthArgs(
+  method: KiroCLIAuthMethod,
+  options?: {
+    idcStartUrl?: string;
+    idcRegion?: string;
+    idcFlow?: KiroIDCFlow;
+  }
+): string[] {
+  if (method !== 'idc') {
+    return [getKiroCLIAuthFlag(method)];
+  }
+
+  const startUrl = options?.idcStartUrl?.trim();
+  if (!startUrl) {
+    throw new Error('Kiro IDC login requires --kiro-idc-start-url');
+  }
+
+  const args = [getKiroCLIAuthFlag('idc'), '--kiro-idc-start-url', startUrl];
+  const region = options?.idcRegion?.trim();
+  if (region) {
+    args.push('--kiro-idc-region', region);
+  }
+  args.push('--kiro-idc-flow', normalizeKiroIDCFlow(options?.idcFlow));
+  return args;
 }
 
 /**
  * Kiro method for CLIProxyAPI management endpoint:
  * GET /v0/management/kiro-auth-url?method=<value>
  */
-export function toKiroManagementMethod(method: KiroAuthMethod): 'aws' | 'google' | 'github' {
+export function toKiroManagementMethod(method: KiroAuthMethod): 'aws' | 'google' | 'github' | null {
   switch (method) {
     case 'google':
       return 'google';
     case 'github':
       return 'github';
+    case 'idc':
+      return null;
     case 'aws-authcode':
       return 'aws';
     case 'aws':
@@ -258,10 +315,20 @@ export function getManagementAuthUrlPath(provider: CLIProxyProvider): string {
   return `/v0/management/${authUrlProvider}-auth-url?is_webui=true`;
 }
 
-export function getPasteCallbackStartPath(provider: CLIProxyProvider): string {
-  // Kiro CLI auth methods still use the legacy start route.
+export function getPasteCallbackStartPath(
+  provider: CLIProxyProvider,
+  options?: { kiroMethod?: KiroAuthMethod }
+): string | null {
   if (provider === 'kiro') {
-    return `/oauth/${provider}/start`;
+    const kiroMethod = options?.kiroMethod ?? normalizeKiroAuthMethod();
+    if (kiroMethod === 'aws-authcode' || kiroMethod === 'idc') {
+      return null;
+    }
+    const managementMethod = toKiroManagementMethod(kiroMethod);
+    if (!managementMethod) {
+      return null;
+    }
+    return `${getManagementAuthUrlPath(provider)}&method=${encodeURIComponent(managementMethod)}`;
   }
   return getManagementAuthUrlPath(provider);
 }
@@ -294,6 +361,12 @@ export interface OAuthOptions {
   acceptAgyRisk?: boolean;
   /** Kiro auth method override (CLI + Dashboard parity). */
   kiroMethod?: KiroAuthMethod;
+  /** Kiro IDC start URL (required when kiroMethod=idc). */
+  kiroIDCStartUrl?: string;
+  /** Kiro IDC region override. */
+  kiroIDCRegion?: string;
+  /** Kiro IDC flow override (authcode or device). */
+  kiroIDCFlow?: KiroIDCFlow;
   /** If true, triggered from Web UI (enables project selection prompt) */
   fromUI?: boolean;
   /** If true, use --no-incognito flag (Kiro only - use normal browser instead of incognito) */

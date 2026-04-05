@@ -39,11 +39,10 @@ describe('requestPasteCallbackStart', () => {
     expect(request.headers['Content-Type']).toBeUndefined();
   });
 
-  it('keeps kiro on the legacy start route with POST', async () => {
+  it('uses the Kiro management auth-url route for paste-callback compatible methods', async () => {
     mockFetch([
       {
-        url: /\/oauth\/kiro\/start$/,
-        method: 'POST',
+        url: /\/v0\/management\/kiro-auth-url\?is_webui=true&method=aws$/,
         response: { auth_url: 'https://auth.example.com/kiro' },
       },
     ]);
@@ -51,15 +50,29 @@ describe('requestPasteCallbackStart', () => {
     const { requestPasteCallbackStart } = await import(
       `../../../src/cliproxy/auth/oauth-handler?request-kiro-start=${Date.now()}`
     );
-    const startData = await requestPasteCallbackStart('kiro', remoteTarget);
+    const startData = await requestPasteCallbackStart('kiro', remoteTarget, {
+      kiroMethod: 'aws',
+    });
 
     expect(startData.auth_url).toBe('https://auth.example.com/kiro');
 
     const [request] = getCapturedFetchRequests();
-    expect(request.url).toBe('https://proxy.example.com:8317/oauth/kiro/start');
-    expect(request.method).toBe('POST');
+    expect(request.url).toBe(
+      'https://proxy.example.com:8317/v0/management/kiro-auth-url?is_webui=true&method=aws'
+    );
+    expect(request.method).toBe('GET');
     expect(request.headers['Authorization']).toBe('Bearer test-mgmt-key');
-    expect(request.headers['Content-Type']).toBe('application/json');
+    expect(request.headers['Content-Type']).toBeUndefined();
+  });
+
+  it('throws for Kiro methods that require the local callback server flow', async () => {
+    const { requestPasteCallbackStart } = await import(
+      `../../../src/cliproxy/auth/oauth-handler?request-kiro-authcode-start=${Date.now()}`
+    );
+
+    await expect(
+      requestPasteCallbackStart('kiro', remoteTarget, { kiroMethod: 'aws-authcode' })
+    ).rejects.toThrow(/paste-callback start is not available/i);
   });
 });
 

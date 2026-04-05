@@ -220,7 +220,15 @@ function getSuggestionsForCommand(tokensBeforeCurrent: string[]): CompletionSugg
         if (command === 'kiro') {
           return completeSubcommands(
             [],
-            [...PROVIDER_FLAGS, '--kiro-auth-method', '--import', '--incognito']
+            [
+              ...PROVIDER_FLAGS,
+              '--kiro-auth-method',
+              '--kiro-idc-start-url',
+              '--kiro-idc-region',
+              '--kiro-idc-flow',
+              '--import',
+              '--incognito',
+            ]
           );
         }
         return completeSubcommands([], PROVIDER_FLAGS);

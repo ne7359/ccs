@@ -20,8 +20,18 @@ describe('auth-types paste-callback start path', () => {
     expect(getPasteCallbackStartPath('ghcp')).toBe('/v0/management/github-auth-url?is_webui=true');
   });
 
-  it('keeps Kiro on the legacy start route for paste-callback mode', () => {
-    expect(getPasteCallbackStartPath('kiro')).toBe('/oauth/kiro/start');
+  it('maps Kiro management-supported methods to the management auth-url route', () => {
+    expect(getPasteCallbackStartPath('kiro')).toBe(
+      '/v0/management/kiro-auth-url?is_webui=true&method=aws'
+    );
+    expect(getPasteCallbackStartPath('kiro', { kiroMethod: 'google' })).toBe(
+      '/v0/management/kiro-auth-url?is_webui=true&method=google'
+    );
+  });
+
+  it('returns null for Kiro CLI-only paste-callback modes', () => {
+    expect(getPasteCallbackStartPath('kiro', { kiroMethod: 'aws-authcode' })).toBeNull();
+    expect(getPasteCallbackStartPath('kiro', { kiroMethod: 'idc' })).toBeNull();
   });
 
   it('still exposes the generic management auth-url helper', () => {

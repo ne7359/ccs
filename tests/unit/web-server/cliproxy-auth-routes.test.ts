@@ -25,6 +25,12 @@ describe('cliproxy-auth-routes start-url guard', () => {
     );
   });
 
+  it('rejects Kiro idc method on start-url', () => {
+    expect(getStartUrlUnsupportedReason('kiro', { kiroMethod: 'idc' })).toContain(
+      "Kiro method 'idc' uses CLI auth flow"
+    );
+  });
+
   it('allows authorization code providers', () => {
     expect(getStartUrlUnsupportedReason('gemini')).toBeNull();
     expect(getStartUrlUnsupportedReason('codex')).toBeNull();
