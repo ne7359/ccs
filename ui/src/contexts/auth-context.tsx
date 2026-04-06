@@ -13,7 +13,12 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import { checkAuth, login as apiLogin, logout as apiLogout } from '@/lib/auth-api';
+import {
+  checkAuth,
+  login as apiLogin,
+  logout as apiLogout,
+  type DashboardAccessMode,
+} from '@/lib/auth-api';
 
 interface AuthContextValue {
   /** Whether authentication is required for this dashboard */
@@ -24,6 +29,14 @@ interface AuthContextValue {
   username: string | null;
   /** Whether auth check is in progress */
   loading: boolean;
+  /** Whether dashboard auth is enabled on the host */
+  authEnabled: boolean;
+  /** Whether host credentials are fully configured */
+  authConfigured: boolean;
+  /** Whether the current request comes from localhost/loopback */
+  isLocalAccess: boolean;
+  /** Effective access mode for the current request */
+  accessMode: DashboardAccessMode;
   /** Login with credentials */
   login: (username: string, password: string) => Promise<void>;
   /** Logout current session */
@@ -37,6 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authEnabled, setAuthEnabled] = useState(false);
+  const [authConfigured, setAuthConfigured] = useState(false);
+  const [isLocalAccess, setIsLocalAccess] = useState(false);
+  const [accessMode, setAccessMode] = useState<DashboardAccessMode>('login');
 
   // Check auth status on mount
   useEffect(() => {
@@ -45,6 +62,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthRequired(res.authRequired);
         setIsAuthenticated(res.authenticated);
         setUsername(res.username);
+        setAuthEnabled(res.authEnabled);
+        setAuthConfigured(res.authConfigured);
+        setIsLocalAccess(res.isLocalAccess);
+        setAccessMode(res.accessMode);
       })
       .catch(() => {
         // If auth check fails (network error, server down, CORS issue),
@@ -52,6 +73,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Prevents silently broken dashboard when server is unreachable.
         setAuthRequired(true);
         setIsAuthenticated(false);
+        setAuthEnabled(true);
+        setAuthConfigured(true);
+        setIsLocalAccess(false);
+        setAccessMode('login');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -74,10 +99,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated,
       username,
       loading,
+      authEnabled,
+      authConfigured,
+      isLocalAccess,
+      accessMode,
       login,
       logout,
     }),
-    [authRequired, isAuthenticated, username, loading, login, logout]
+    [
+      authRequired,
+      isAuthenticated,
+      username,
+      loading,
+      authEnabled,
+      authConfigured,
+      isLocalAccess,
+      accessMode,
+      login,
+      logout,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

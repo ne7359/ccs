@@ -1,13 +1,14 @@
 /**
  * Auth Check Route — Remote Access Detection Tests
  *
- * Verifies that /api/auth/check returns effectiveAuthRequired=true
- * for remote clients when auth is disabled, preventing a silently
- * broken dashboard.
+ * Verifies that /api/auth/check produces a distinct setup state for
+ * remote clients or incomplete host config instead of always showing
+ * a login form.
  */
 
 import { describe, it, expect } from 'bun:test';
 import { isLoopbackRemoteAddress } from '../../../src/web-server/middleware/auth-middleware';
+import { resolveDashboardAccessState } from '../../../src/web-server/routes/auth-routes';
 
 describe('isLoopbackRemoteAddress', () => {
   it('returns true for IPv4 localhost', () => {
@@ -37,27 +38,69 @@ describe('isLoopbackRemoteAddress', () => {
   });
 });
 
-describe('effectiveAuthRequired logic', () => {
-  // Mirrors the logic in auth-routes.ts GET /api/auth/check:
-  // effectiveAuthRequired = authConfig.enabled || !isLocal
-  function computeEffectiveAuthRequired(authEnabled: boolean, remoteAddress: string | undefined) {
-    const isLocal = isLoopbackRemoteAddress(remoteAddress);
-    return authEnabled || !isLocal;
-  }
-
-  it('localhost + auth disabled -> authRequired=false', () => {
-    expect(computeEffectiveAuthRequired(false, '127.0.0.1')).toBe(false);
+describe('resolveDashboardAccessState', () => {
+  it('allows localhost through when auth is disabled', () => {
+    expect(
+      resolveDashboardAccessState(
+        { enabled: false, username: '', password_hash: '', session_timeout_hours: 24 },
+        '127.0.0.1'
+      )
+    ).toEqual({
+      authRequired: false,
+      authEnabled: false,
+      authConfigured: false,
+      isLocalAccess: true,
+      accessMode: 'open',
+    });
   });
 
-  it('remote + auth disabled -> authRequired=true', () => {
-    expect(computeEffectiveAuthRequired(false, '192.168.2.100')).toBe(true);
+  it('shows setup state for remote access when auth is disabled', () => {
+    expect(
+      resolveDashboardAccessState(
+        { enabled: false, username: '', password_hash: '', session_timeout_hours: 24 },
+        '192.168.2.100'
+      )
+    ).toEqual({
+      authRequired: true,
+      authEnabled: false,
+      authConfigured: false,
+      isLocalAccess: false,
+      accessMode: 'setup',
+    });
   });
 
-  it('remote + auth enabled -> authRequired=true', () => {
-    expect(computeEffectiveAuthRequired(true, '192.168.2.100')).toBe(true);
+  it('shows login state only when auth is enabled and fully configured', () => {
+    expect(
+      resolveDashboardAccessState(
+        {
+          enabled: true,
+          username: 'admin',
+          password_hash: '$2b$10$123456789012345678901u4cPFsKnzGWxZmfq6OnpZnN0UiM6Qf7e',
+          session_timeout_hours: 24,
+        },
+        '192.168.2.100'
+      )
+    ).toEqual({
+      authRequired: true,
+      authEnabled: true,
+      authConfigured: true,
+      isLocalAccess: false,
+      accessMode: 'login',
+    });
   });
 
-  it('localhost + auth enabled -> authRequired=true', () => {
-    expect(computeEffectiveAuthRequired(true, '127.0.0.1')).toBe(true);
+  it('shows setup state when auth is enabled but credentials are incomplete', () => {
+    expect(
+      resolveDashboardAccessState(
+        { enabled: true, username: 'admin', password_hash: '', session_timeout_hours: 24 },
+        '127.0.0.1'
+      )
+    ).toEqual({
+      authRequired: true,
+      authEnabled: true,
+      authConfigured: false,
+      isLocalAccess: true,
+      accessMode: 'setup',
+    });
   });
 });

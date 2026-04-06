@@ -45,7 +45,11 @@ const resources = {
       },
       auth: {
         dashboardTitle: 'CCS Dashboard',
-        loginDescription: 'Enter your credentials to access the dashboard',
+        protectedAccessLabel: 'Protected access',
+        remoteGuardLabel: 'Remote access guard',
+        loading: 'Checking dashboard access…',
+        loginDescription:
+          'Use the username and password configured on the host to access the dashboard.',
         username: 'Username',
         password: 'Password',
         usernamePlaceholder: 'Enter username',
@@ -53,6 +57,30 @@ const resources = {
         signIn: 'Sign In',
         signingIn: 'Signing in...',
         loginFailed: 'Login failed',
+        lightMode: 'Light',
+        darkMode: 'Dark',
+        noDefaultCredentials: 'No default credentials ship with CCS.',
+        credentialsHint:
+          'Credentials are created on the host with `ccs config auth setup`, then used here.',
+        remoteSetupTitle: 'Remote access needs host setup',
+        remoteSetupDescription:
+          'This dashboard was opened from a non-local address, but dashboard auth is not enabled on the host yet.',
+        incompleteSetupDescription:
+          'Dashboard auth is turned on, but the host setup is incomplete. Finish the host configuration before signing in.',
+        safetyNoteRemote:
+          'Remote management stays locked until the host owner enables dashboard auth.',
+        safetyNoteLocal:
+          'If you are on the same machine, the localhost URL remains the simplest path in.',
+        safetyNoteSession:
+          'Successful sign-ins create an HTTP-only session that stays scoped to this host.',
+        hostStepTitle: 'On the host machine',
+        hostStepDescription:
+          'Create or re-enable dashboard credentials, then reopen this page from the remote device.',
+        localStepTitle: 'If this is your machine',
+        localStepDescription:
+          'Open the localhost URL printed by `ccs config` instead of the LAN or Tailscale address.',
+        showPassword: 'Show password',
+        hidePassword: 'Hide password',
       },
       commonToast: {
         apiKeyRequired: 'API key is required',
@@ -1382,7 +1410,10 @@ const resources = {
       },
       auth: {
         dashboardTitle: 'CCS 控制台',
-        loginDescription: '请输入凭据以访问控制台',
+        protectedAccessLabel: '受保护访问',
+        remoteGuardLabel: '远程访问保护',
+        loading: '正在检查控制台访问状态…',
+        loginDescription: '使用主机上配置的用户名和密码访问控制台。',
         username: '用户名',
         password: '密码',
         usernamePlaceholder: '请输入用户名',
@@ -1390,6 +1421,24 @@ const resources = {
         signIn: '登录',
         signingIn: '登录中...',
         loginFailed: '登录失败',
+        lightMode: '浅色',
+        darkMode: '深色',
+        noDefaultCredentials: 'CCS 不提供默认用户名或密码。',
+        credentialsHint: '凭据需要在主机上通过 `ccs config auth setup` 创建，然后在这里使用。',
+        remoteSetupTitle: '远程访问需要在主机上完成设置',
+        remoteSetupDescription: '当前通过非本机地址打开控制台，但主机尚未启用控制台认证。',
+        incompleteSetupDescription:
+          '控制台认证已开启，但主机上的设置尚未完成。请先完成主机配置再登录。',
+        safetyNoteRemote: '在主机所有者启用控制台认证前，远程管理会保持锁定。',
+        safetyNoteLocal: '如果你就在这台机器上，使用 localhost 地址始终是最直接的方式。',
+        safetyNoteSession: '登录成功后会创建仅限此主机的 HTTP-only 会话。',
+        hostStepTitle: '在主机上操作',
+        hostStepDescription: '创建或重新启用控制台凭据，然后再从远程设备重新打开此页面。',
+        localStepTitle: '如果这就是你的机器',
+        localStepDescription:
+          '请使用 `ccs config` 输出的 localhost 地址，而不是局域网或 Tailscale 地址。',
+        showPassword: '显示密码',
+        hidePassword: '隐藏密码',
       },
       commonToast: {
         apiKeyRequired: 'API key 为必填项',
@@ -2655,7 +2704,11 @@ const resources = {
       },
       auth: {
         dashboardTitle: 'Bảng điều khiển CCS',
-        loginDescription: 'Nhập thông tin đăng nhập của bạn để truy cập bảng điều khiển',
+        protectedAccessLabel: 'Truy cập được bảo vệ',
+        remoteGuardLabel: 'Lớp bảo vệ truy cập từ xa',
+        loading: 'Đang kiểm tra quyền truy cập bảng điều khiển…',
+        loginDescription:
+          'Dùng tên người dùng và mật khẩu đã được cấu hình trên máy host để truy cập bảng điều khiển.',
         username: 'Tên người dùng',
         password: 'Mật khẩu',
         usernamePlaceholder: 'Nhập tên người dùng',
@@ -2663,6 +2716,30 @@ const resources = {
         signIn: 'Đăng nhập',
         signingIn: 'Đang đăng nhập...',
         loginFailed: 'Đăng nhập không thành công',
+        lightMode: 'Sáng',
+        darkMode: 'Tối',
+        noDefaultCredentials: 'CCS không có sẵn tài khoản hay mật khẩu mặc định.',
+        credentialsHint:
+          'Thông tin đăng nhập được tạo trên máy host bằng `ccs config auth setup`, rồi dùng tại đây.',
+        remoteSetupTitle: 'Truy cập từ xa cần được thiết lập trên máy host',
+        remoteSetupDescription:
+          'Bảng điều khiển này đang được mở từ một địa chỉ không phải localhost, nhưng máy host chưa bật dashboard auth.',
+        incompleteSetupDescription:
+          'Dashboard auth đã được bật nhưng cấu hình trên máy host vẫn chưa hoàn tất. Hãy hoàn thành cấu hình trước khi đăng nhập.',
+        safetyNoteRemote:
+          'Quản trị từ xa sẽ tiếp tục bị khóa cho tới khi chủ máy host bật dashboard auth.',
+        safetyNoteLocal:
+          'Nếu bạn đang ngồi ngay trên máy đó, đường localhost vẫn là cách đơn giản nhất để vào.',
+        safetyNoteSession:
+          'Sau khi đăng nhập thành công, phiên HTTP-only sẽ chỉ có hiệu lực trên đúng máy host này.',
+        hostStepTitle: 'Trên máy host',
+        hostStepDescription:
+          'Tạo hoặc bật lại thông tin đăng nhập cho dashboard, rồi mở lại trang này từ thiết bị từ xa.',
+        localStepTitle: 'Nếu đây là máy của bạn',
+        localStepDescription:
+          'Hãy mở URL localhost mà `ccs config` in ra, thay vì địa chỉ LAN hoặc Tailscale.',
+        showPassword: 'Hiện mật khẩu',
+        hidePassword: 'Ẩn mật khẩu',
       },
       commonToast: {
         apiKeyRequired: 'Cần có khóa API',
@@ -4013,7 +4090,11 @@ const resources = {
       },
       auth: {
         dashboardTitle: 'CCS Dashboard',
-        loginDescription: 'ダッシュボードにアクセスするには認証情報を入力してください',
+        protectedAccessLabel: '保護されたアクセス',
+        remoteGuardLabel: 'リモートアクセス保護',
+        loading: 'ダッシュボードのアクセス状態を確認しています…',
+        loginDescription:
+          'ホストで設定されたユーザー名とパスワードを使ってダッシュボードにアクセスしてください。',
         username: 'ユーザー名',
         password: 'パスワード',
         usernamePlaceholder: 'ユーザー名を入力',
@@ -4021,6 +4102,29 @@ const resources = {
         signIn: 'サインイン',
         signingIn: 'サインイン中...',
         loginFailed: 'ログインに失敗しました',
+        lightMode: 'ライト',
+        darkMode: 'ダーク',
+        noDefaultCredentials: 'CCS にデフォルトの認証情報はありません。',
+        credentialsHint:
+          '認証情報はホスト側で `ccs config auth setup` を実行して作成し、ここで使用します。',
+        remoteSetupTitle: 'リモートアクセスにはホスト側の設定が必要です',
+        remoteSetupDescription:
+          'このダッシュボードはローカル以外のアドレスから開かれていますが、ホストでダッシュボード認証がまだ有効になっていません。',
+        incompleteSetupDescription:
+          'ダッシュボード認証は有効ですが、ホスト側の設定が未完了です。サインイン前に設定を完了してください。',
+        safetyNoteRemote:
+          'ホスト管理者がダッシュボード認証を有効にするまで、リモート管理はロックされたままです。',
+        safetyNoteLocal: '同じマシン上にいる場合は、localhost の URL を使うのが最も簡単です。',
+        safetyNoteSession:
+          'サインインに成功すると、このホストに限定された HTTP-only セッションが作成されます。',
+        hostStepTitle: 'ホスト側で行うこと',
+        hostStepDescription:
+          'ダッシュボード認証情報を作成または再有効化してから、このページをリモート端末で開き直してください。',
+        localStepTitle: 'もしこのマシンを使っているなら',
+        localStepDescription:
+          '`ccs config` が表示する localhost の URL を使い、LAN や Tailscale のアドレスは避けてください。',
+        showPassword: 'パスワードを表示',
+        hidePassword: 'パスワードを隠す',
       },
       commonToast: {
         apiKeyRequired: 'API キーは必須です',

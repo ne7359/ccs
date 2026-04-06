@@ -5,10 +5,16 @@
 
 const BASE_URL = '/api/auth';
 
+export type DashboardAccessMode = 'open' | 'login' | 'setup';
+
 export interface AuthCheckResponse {
   authRequired: boolean;
   authenticated: boolean;
   username: string | null;
+  authEnabled: boolean;
+  authConfigured: boolean;
+  isLocalAccess: boolean;
+  accessMode: DashboardAccessMode;
 }
 
 export interface AuthSetupResponse {
